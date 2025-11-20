@@ -226,8 +226,7 @@ def wait_db_ready():
             time.sleep(1)
 
 
-def generate_remoteci_rc_files():
-    remotecis = get("remotecis").json()["remotecis"]
+def generate_remoteci_rc_files(remotecis):
     for remoteci in remotecis:
         with open("./%s.sh" % remoteci["name"], "w") as f:
             f.write(
@@ -247,8 +246,7 @@ export DCI_UI_URL
             )
 
 
-def generate_remoteci_yml_files():
-    remotecis = get("remotecis").json()["remotecis"]
+def generate_remoteci_yml_files(remotecis):
     for remoteci in remotecis:
         with open("./%s_dci_credentials.yml" % remoteci["name"], "w") as f:
             f.write(
@@ -323,10 +321,16 @@ def main():
     # Create the pipeline user and remotecis
     pipeline_user = create_user("pipeline-user")
     pipeline_user_id = pipeline_user["id"]
-    create_remoteci("rh-telco-pipeline", rh_telco_ci_id)
-    create_remoteci("cnf-telco-ci", cnf_telco_ci_id)
-    create_remoteci("storage-plugin-telco-ci", storage_plugin_telco_ci_id)
-    create_remoteci("network-plugin-telco-ci", network_plugin_telco_ci_id)
+
+    remotecis = []
+    remoteci_rh_telco_ci = create_remoteci("rh-telco-pipeline", rh_telco_ci_id)
+    remotecis.append(remoteci_rh_telco_ci)
+    remoteci_cnf_telco_ci = create_remoteci("cnf-telco-ci", cnf_telco_ci_id)
+    remotecis.append(remoteci_cnf_telco_ci)
+    remoteci_storage_plugin_telco_ci = create_remoteci("storage-plugin-telco-ci", storage_plugin_telco_ci_id)
+    remotecis.append(remoteci_storage_plugin_telco_ci)
+    remoteci_network_plugin_telco_ci = create_remoteci("network-plugin-telco-ci", network_plugin_telco_ci_id)
+    remotecis.append(remoteci_network_plugin_telco_ci)
 
     # Adds the permissions
     teams = (
@@ -419,8 +423,8 @@ def main():
         team_id=cnf_telco_ci_id,
     )
 
-    generate_remoteci_rc_files()
-    generate_remoteci_yml_files()
+    generate_remoteci_rc_files(remotecis)
+    generate_remoteci_yml_files(remotecis)
     generate_pipeline_user_files()
 
 
