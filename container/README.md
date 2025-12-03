@@ -43,6 +43,7 @@ the variable CONTAINER_MOUNTED_PATHS in the ~/.config/dci-pipeline/config
 configuration file to mount more directories.
 
 Example:
+
 ```ShellSession
 CONTAINER_MOUNTED_PATHS=(
     "/var/lib/dci"

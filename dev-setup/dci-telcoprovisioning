@@ -327,9 +327,13 @@ def main():
     remotecis.append(remoteci_rh_telco_ci)
     remoteci_cnf_telco_ci = create_remoteci("cnf-telco-ci", cnf_telco_ci_id)
     remotecis.append(remoteci_cnf_telco_ci)
-    remoteci_storage_plugin_telco_ci = create_remoteci("storage-plugin-telco-ci", storage_plugin_telco_ci_id)
+    remoteci_storage_plugin_telco_ci = create_remoteci(
+        "storage-plugin-telco-ci", storage_plugin_telco_ci_id
+    )
     remotecis.append(remoteci_storage_plugin_telco_ci)
-    remoteci_network_plugin_telco_ci = create_remoteci("network-plugin-telco-ci", network_plugin_telco_ci_id)
+    remoteci_network_plugin_telco_ci = create_remoteci(
+        "network-plugin-telco-ci", network_plugin_telco_ci_id
+    )
     remotecis.append(remoteci_network_plugin_telco_ci)
 
     # Adds the permissions

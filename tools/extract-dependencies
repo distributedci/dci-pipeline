@@ -106,7 +106,7 @@ while read line; do
                       # unset username and email
                       git config --unset user.name
                       git config --unset user.email
-                      $BASEDIR/send-feedback $TARGET "ERROR unable to rebase PR $pr from $proj branch $BRANCH"
+                      $BASEDIR/send_status $TARGET error "ERROR unable to rebase PR $pr from $proj branch $BRANCH"
                       rm -rf $TARGET
                       exit 1
                   fi
@@ -144,7 +144,7 @@ while read line; do
               git rev-parse HEAD > .original-commit-id
               git fetch origin master
               if ! git rebase origin/master; then
-                  $BASEDIR/send-feedback $TARGET "ERROR unable to rebase Gerrit review $changeid from $PROJECT"
+                  $BASEDIR/send_status $TARGET error "ERROR unable to rebase Gerrit review $changeid from $PROJECT"
                   rm -rf $TARGET
                   exit 1
               fi
