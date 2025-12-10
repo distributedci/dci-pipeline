@@ -555,7 +555,7 @@ def get_data_dir(job_info, jobdef):
                 d = os.path.join(
                     os.path.expanduser(base_dir), jobdef["name"], job_info["job"]["id"]
                 )
-                os.makedirs(d, mode=0o700)
+                os.makedirs(d, mode=0o770)
                 with open(os.path.join(d, "job_info.yaml"), "w") as f:
                     yaml.dump(job_info, f, Dumper=AnsibleDumper)
                 with open(os.path.join(d, "jobdef.yaml"), "w") as f:
