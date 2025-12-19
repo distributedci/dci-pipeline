@@ -19,6 +19,7 @@ import unittest
 import mock
 
 from dcipipeline.main import (
+    convert_value_type,
     extract_build_tags,
     extract_tags,
     filter_type_tags,
@@ -118,6 +119,53 @@ class TestMain(unittest.TestCase):
         args = ["dci-pipeline", "@name:name=my-pipeline"]
         _, _, opts = process_args(args)
         self.assertTrue(m.called)
+
+    def test_process_args_boolean_true(self):
+        args = ["dci-pipeline", "jobdef:debug=true"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"debug": True}}])
+
+    def test_process_args_boolean_false(self):
+        args = ["dci-pipeline", "jobdef:enabled=false"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"enabled": False}}])
+
+    def test_process_args_integer(self):
+        args = ["dci-pipeline", "jobdef:timeout=300"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"timeout": 300}}])
+
+    def test_process_args_integer_zero(self):
+        args = ["dci-pipeline", "jobdef:retries=0"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"retries": 0}}])
+        self.assertIsInstance(result[0]["jobdef"]["retries"], int)
+
+    def test_process_args_integer_one(self):
+        args = ["dci-pipeline", "jobdef:count=1"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"count": 1}}])
+        self.assertIsInstance(result[0]["jobdef"]["count"], int)
+
+    def test_process_args_float(self):
+        args = ["dci-pipeline", "jobdef:threshold=3.14"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"threshold": 3.14}}])
+
+    def test_process_args_list_with_types(self):
+        args = ["dci-pipeline", "jobdef:values=42,3.14,true,hello"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"values": [42, 3.14, True, "hello"]}}])
+
+    def test_process_args_dict_with_int_value(self):
+        args = ["dci-pipeline", "jobdef:config=timeout:300"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"config": {"timeout": 300}}}])
+
+    def test_process_args_dict_with_bool_value(self):
+        args = ["dci-pipeline", "jobdef:config=enabled:true"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"config": {"enabled": True}}}])
 
     def test_overload_dicts_add(self):
         jobdef = {"first": "value"}
@@ -347,6 +395,117 @@ class TestMain(unittest.TestCase):
             generate_query("ocp", ["fallback"]),
             "and(eq(state,active),eq(type,ocp),contains(tags,fallback))",
         )
+
+
+class TestConvertValueType(unittest.TestCase):
+    def test_boolean_true_lowercase(self):
+        self.assertEqual(convert_value_type("true"), True)
+
+    def test_boolean_true_uppercase(self):
+        self.assertEqual(convert_value_type("TRUE"), True)
+
+    def test_boolean_true_mixedcase(self):
+        self.assertEqual(convert_value_type("TrUe"), True)
+
+    def test_boolean_yes(self):
+        self.assertEqual(convert_value_type("yes"), True)
+        self.assertEqual(convert_value_type("YES"), True)
+
+    def test_boolean_on(self):
+        self.assertEqual(convert_value_type("on"), True)
+        self.assertEqual(convert_value_type("ON"), True)
+
+    def test_boolean_false_lowercase(self):
+        self.assertEqual(convert_value_type("false"), False)
+
+    def test_boolean_false_uppercase(self):
+        self.assertEqual(convert_value_type("FALSE"), False)
+
+    def test_boolean_false_mixedcase(self):
+        self.assertEqual(convert_value_type("FaLsE"), False)
+
+    def test_boolean_no(self):
+        self.assertEqual(convert_value_type("no"), False)
+        self.assertEqual(convert_value_type("NO"), False)
+
+    def test_boolean_off(self):
+        self.assertEqual(convert_value_type("off"), False)
+        self.assertEqual(convert_value_type("OFF"), False)
+
+    def test_integer_zero(self):
+        self.assertEqual(convert_value_type("0"), 0)
+        self.assertIsInstance(convert_value_type("0"), int)
+
+    def test_integer_one(self):
+        self.assertEqual(convert_value_type("1"), 1)
+        self.assertIsInstance(convert_value_type("1"), int)
+
+    def test_integer_positive(self):
+        self.assertEqual(convert_value_type("42"), 42)
+        self.assertEqual(convert_value_type("300"), 300)
+
+    def test_integer_negative(self):
+        self.assertEqual(convert_value_type("-42"), -42)
+        self.assertEqual(convert_value_type("-1"), -1)
+
+    def test_float_positive(self):
+        self.assertEqual(convert_value_type("3.14"), 3.14)
+        self.assertIsInstance(convert_value_type("3.14"), float)
+
+    def test_float_negative(self):
+        self.assertEqual(convert_value_type("-2.5"), -2.5)
+        self.assertIsInstance(convert_value_type("-2.5"), float)
+
+    def test_float_zero(self):
+        self.assertEqual(convert_value_type("0.0"), 0.0)
+        self.assertIsInstance(convert_value_type("0.0"), float)
+
+    def test_float_leading_zero(self):
+        self.assertEqual(convert_value_type("0.5"), 0.5)
+
+    def test_string_plain(self):
+        self.assertEqual(convert_value_type("hello"), "hello")
+
+    def test_string_with_spaces(self):
+        self.assertEqual(convert_value_type("hello world"), "hello world")
+
+    def test_string_url_http(self):
+        self.assertEqual(convert_value_type("http://example.com"), "http://example.com")
+
+    def test_string_url_https(self):
+        self.assertEqual(
+            convert_value_type("https://example.com"), "https://example.com"
+        )
+
+    def test_string_path(self):
+        self.assertEqual(convert_value_type("/path/to/file"), "/path/to/file")
+
+    def test_string_alphanumeric(self):
+        self.assertEqual(convert_value_type("abc123"), "abc123")
+
+    def test_non_string_int(self):
+        self.assertEqual(convert_value_type(42), 42)
+
+    def test_non_string_float(self):
+        self.assertEqual(convert_value_type(3.14), 3.14)
+
+    def test_non_string_bool(self):
+        self.assertEqual(convert_value_type(True), True)
+        self.assertEqual(convert_value_type(False), False)
+
+    def test_non_string_list(self):
+        lst = [1, 2, 3]
+        self.assertEqual(convert_value_type(lst), lst)
+
+    def test_non_string_dict(self):
+        dct = {"key": "value"}
+        self.assertEqual(convert_value_type(dct), dct)
+
+    def test_empty_string(self):
+        self.assertEqual(convert_value_type(""), "")
+
+    def test_string_with_only_spaces(self):
+        self.assertEqual(convert_value_type("   "), "   ")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@
 
 Name:           dci-pipeline
 # to keep in sync with setup.py and Dockerfile
-Version:        0.11.0
+Version:        0.12.0
 Release:        1.VERS%{?dist}
 Summary:        CI pipeline management for DCI jobs
 License:        ASL 2.0
@@ -179,6 +179,9 @@ exit 0
 %attr(2770, dci-queue, dci-queue) /var/lib/dci-queue
 
 %changelog
+* Fri Dec 19 2025 Frederic Lepied <flepied@redhat.com> 0.12.0-1
+- add automatic type conversion for command line arguments (int, float, bool)
+
 * Mon Jun 02 2025 Frederic Lepied <flepied@redhat.com> 0.11.1-1
 - add support for multi-pool in dci-queue commands
 
