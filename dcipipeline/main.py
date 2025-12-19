@@ -908,6 +908,34 @@ def usage(ret, cmd):
     sys.exit(ret)
 
 
+def convert_value_type(value):
+    """Convert a string value to its appropriate type (bool, int, float, or str).
+
+    Tries to convert in order: boolean, int, float, keeping as string if none match.
+    """
+    if isinstance(value, str):
+        # Try boolean conversion
+        if value.lower() in ("true", "yes", "on"):
+            return True
+        elif value.lower() in ("false", "no", "off"):
+            return False
+
+        # Try int conversion
+        try:
+            return int(value)
+        except ValueError:
+            pass
+
+        # Try float conversion
+        try:
+            return float(value)
+        except ValueError:
+            pass
+
+    # Return as-is if no conversion worked
+    return value
+
+
 def process_args(args):
     """process command line arguments
 
@@ -949,12 +977,17 @@ def process_args(args):
                         if res[k][-1] == "":
                             res[k] = res[k][:-1]
                     else:
-                        res[k] = v
+                        res[k] = convert_value_type(v)
                     value = res
                 elif "," in value:
                     value = value.split(",")
                     if value[-1] == "":
                         value = value[:-1]
+                    # Convert each list item to appropriate type
+                    value = [convert_value_type(v) for v in value]
+                else:
+                    # Single value - convert to appropriate type
+                    value = convert_value_type(value)
             dct = overload.get(name, {})
             dct[key] = value
             overload[name] = dct
