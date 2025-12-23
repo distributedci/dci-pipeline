@@ -34,6 +34,11 @@ fi
 
 . "$BASEDIR/common$SUFFIX"
 
+GH_API_URL=${REV_PROXY_URL:=https://api.github.com}
+GH_CLONE_URL=${REV_PROXY_URL:=https://github.com}
+# remove https:// from GH_CLONE_URL for use in git clone URL
+GH_CLONE_BASE_URL=${GH_CLONE_URL#https://}
+
 export GIT_COMMITTER_NAME="Extractor"
 export GIT_COMMITTER_EMAIL="noaddress@nowhere.com"
 
@@ -60,18 +65,18 @@ while read line; do
           GITHUB_REPO_SSH_ID=$($BASEDIR/get-config-entry "https://github.com/$proj" github_ssh_id "$GITHUB_SSH_ID")
           GIT_REPO_CLONE_OPTIONS=$($BASEDIR/get-config-entry "https://github.com/$proj" git_clone_options "$GIT_CLONE_OPTIONS")
           if [ -n "$GITHUB_REPO_TOKEN" ]; then
-              curl -s -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GITHUB_REPO_TOKEN" https://api.github.com/repos/$proj/pulls/$pr > $dir-$pr.json
+              curl -s -H "Accept: application/vnd.github.v3+json" -H "Authorization: token $GITHUB_REPO_TOKEN" $GH_API_URL/repos/$proj/pulls/$pr > $dir-$pr.json
           else
-              curl -s -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/$proj/pulls/$pr > $dir-$pr.json
+              curl -s -H "Accept: application/vnd.github.v3+json" $GH_API_URL/repos/$proj/pulls/$pr > $dir-$pr.json
           fi
 
           if [ ! -d $dir ]; then
               if [ -n "$GITHUB_REPO_SSH_ID" ]; then
                   ssh-agent bash -c "ssh-add $HOME/.ssh/$GITHUB_REPO_SSH_ID; git clone ${GIT_REPO_CLONE_OPTIONS} git@github.com:$proj $dir"
               elif [ -n "$GITHUB_LOGIN" ] && [ -n "$GITHUB_REPO_TOKEN" ]; then
-                  git clone ${GIT_REPO_CLONE_OPTIONS} "https://$GITHUB_REPO_LOGIN:$GITHUB_REPO_TOKEN@github.com/$proj" "$dir"
+                  git clone ${GIT_REPO_CLONE_OPTIONS} "https://$GITHUB_REPO_LOGIN:$GITHUB_REPO_TOKEN@$GH_CLONE_BASE_URL/$proj" "$dir"
               else
-                  git clone ${GIT_REPO_CLONE_OPTIONS} "https://github.com/$proj" "$dir"
+                  git clone ${GIT_REPO_CLONE_OPTIONS} "$GH_CLONE_URL/$proj" "$dir"
               fi
           fi
 
@@ -106,7 +111,7 @@ while read line; do
                       # unset username and email
                       git config --unset user.name
                       git config --unset user.email
-                      $BASEDIR/send_status $TARGET error "ERROR unable to rebase PR $pr from $proj branch $BRANCH"
+                      $BASEDIR/send_status "$TARGET" error "ERROR unable to rebase PR $pr from $proj branch $BRANCH"
                       rm -rf $TARGET
                       exit 1
                   fi

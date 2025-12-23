@@ -493,6 +493,9 @@ the `GITHUB_SSH_ID` variable to download the pull request using `ssh` or the
 `GITHUB_LOGIN` variable to use `https`. The ssh key needs to be
 without password for the automation to work.
 
+If your private GitHub repository is accessible via a reverse proxy,
+you can set the `REV_PROXY_URL` variable in your configuration file.
+
 For dci-pipeline-check to vote like a regular CI system on GitHub, set
 the variable `GITHUB_VOTING_REPOS` to a regexp matching the
 repositories you want to vote on in your configuratio file. Your GitHub
