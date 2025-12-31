@@ -477,6 +477,27 @@ $ dci-pipeline-schedule -p my-pool ocp-vanilla workload
 ...
 ```
 
+## dci-pipeline-lint
+
+The `dci-pipeline-lint` utility validates dci-pipeline job definition files
+for common issues and best practices. It performs checks such as filename
+format validation, stage name validation, topic presence, inventory path
+validation, and more. Run it on your pipeline files before committing:
+
+```ShellSession
+$ dci-pipeline-lint pipeline.yml
+$ dci-pipeline-lint --format json pipeline1.yml pipeline2.yml
+$ dci-pipeline-lint --format junit pipeline.yml > results.xml
+$ dci-pipeline-lint --severity E pipeline.yml  # Show only errors
+```
+
+The utility supports three output formats:
+- **rpmlint** (default): Human-readable rpmlint-style format
+- **json**: Structured JSON format with summary statistics
+- **junit**: JUnit XML format for CI/CD integration
+
+Exit code is 0 if no errors are found, 1 if errors are present.
+
 ## dci-pipeline-check
 
 To test a Github PR, with specific a pipeline you can use
