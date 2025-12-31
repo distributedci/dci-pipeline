@@ -15,8 +15,7 @@
 
 import os
 import unittest
-
-import mock
+from unittest import mock
 
 from dcipipeline.main import (
     extract_build_tags,
