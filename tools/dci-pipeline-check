@@ -185,7 +185,15 @@ fi
 mkdir -p "$DIR"
 cd "$DIR" || exit 1
 
+set +e
+
 echo "Depends-On: $CHANGEID" | "$BASEDIR/extract-dependencies$SUFFIX" "$DIR"
+
+if [ $? != 0 ]; then
+    "$BASEDIR/send_status$SUFFIX" "$DIR" error "ERROR unable to extract change $CHANGEID"
+    rm -rf "$DIR"
+    exit 1
+fi
 
 # rerun check from the local repo
 if [ -d dci-pipeline ]; then
@@ -211,6 +219,14 @@ MAINDIR="$(ls|grep -Fv .json)"
   # extract depends-on from the last commit message
   cd "$MAINDIR"; git log -1
 ) | tr -d '\r' | sort -u | "$BASEDIR/extract-dependencies$SUFFIX" $DIR
+
+if [ $? != 0 ]; then
+    "$BASEDIR/send_status$SUFFIX" "$DIR" error "ERROR unable to extract dependencies for $CHANGEID"
+    rm -rf "$DIR"
+    exit 1
+fi
+
+set -e
 
 # take test-runner from the local dir
 if [ -d dci-pipeline ]; then
@@ -249,9 +265,11 @@ if [ -z "$KBCFG" ]; then
     fi
 else
     # use the pipelines from the change if present
-    PIPELINES_REPO=$(cd "$PIPELINES_DIR" && basename $(git config --local remote.origin.url) .git)
+    # Find which pipeline directory contains a checked-out repo
+    PIPELINES_DIR_FOR_GIT=$(find_checked_out_pipelines_dir "$PWD")
+    PIPELINES_REPO=$(cd "$PIPELINES_DIR_FOR_GIT" && basename $(git config --local remote.origin.url) .git)
     if [ -d "$PIPELINES_REPO" ]; then
-        PIPELINES_PATH=$(cd "$PIPELINES_DIR" && git rev-parse --show-prefix)
+        PIPELINES_PATH=$(cd "$PIPELINES_DIR_FOR_GIT" && git rev-parse --show-prefix)
         PIPELINES_DIR="$PWD/$PIPELINES_REPO/$PIPELINES_PATH"
     fi
     # lookup the first pipeline file
@@ -265,12 +283,12 @@ else
                 break
                 ;;
             *)
-                first_pipeline="${PIPELINES_DIR}/${arg}-pipeline.yml"
+                first_pipeline=$(find_pipeline_file "$arg" "$PIPELINES_DIRS")
                 break
                 ;;
         esac
     done
-    if [ -z "$first_pipeline" ]; then
+    if [ -z "$first_pipeline" ] || [ ! -r "$first_pipeline" ]; then
         "$BASEDIR/send_status$SUFFIX" "$DIR" error "ERROR unable to find a pipeline file" 1>&2
         rm -rf $DIR
         exit 1

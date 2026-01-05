@@ -76,9 +76,9 @@ for arg in "$@"; do
             ;;
         *)
             # Verify if the pipeline file exists
-            pipeline="${PIPELINES_DIR}/${arg}-pipeline.yml"
-            if [ ! -r "$pipeline" ]; then
-                echo "Unable to find $pipeline file" 1>&2
+            pipeline=$(find_pipeline_file "$arg" "$PIPELINES_DIRS")
+            if [ -z "$pipeline" ] || [ ! -r "$pipeline" ]; then
+                echo "Unable to find ${arg}-pipeline.yml file in PIPELINES_DIRS: $PIPELINES_DIRS" 1>&2
                 exit 1
             fi
             names=$(yaml2json "$pipeline"|jq -r '.[].name')
@@ -91,6 +91,12 @@ for arg in "$@"; do
             cp $pipeline $TMPDIR || exit 1
             pipeline="$TMPDIR/$(basename $pipeline)"
 
+            # Replace @QUEUE/@RESOURCE
+            sed -i -e "s/@QUEUE/$DCI_QUEUE/g" -e "s/@RESOURCE/$RES/g" "$pipeline"
+
+            # resolve relative inventories after @QUEUE/@RESOURCE replacement
+            resolve_inventories "$pipeline"
+
             if grep -q -E "^\s*-?\s*ansible_playbook\s*:\s*[\"']?/usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml[\"']?" $pipeline; then
                 CNF_PIPELINES="$CNF_PIPELINES $pipeline"
             else
@@ -98,8 +104,6 @@ for arg in "$@"; do
             fi
 
             for name in $names; do
-                # Replace @QUEUE/@RESOURCE
-                sed -i -e "s/@QUEUE/$DCI_QUEUE/g" -e "s/@RESOURCE/$RES/g" $pipeline
                 CMD="$CMD $pipeline"
             done
             ;;
