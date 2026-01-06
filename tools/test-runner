@@ -37,7 +37,6 @@ PROJECTS=(
     dci-ansible
     dci-openshift-agent
     dci-openshift-app-agent
-    dci-pipeline
     python-dciauth
     python-dciclient
     python-kubernetes
@@ -145,12 +144,8 @@ get_project() {
     fi
     project=$(cd "$dir"; basename $(git config --local remote.origin.url 2> /dev/null) .git)
     if [ -n "$project" ] && [ "$project" != .git ]; then
-        top_level_dir=$(cd "$dir"; git rev-parse --show-toplevel 2> /dev/null)
-        ALL_DIRS["$project"]="$top_level_dir"
-        echo "$project"
-        return 0
+        ALL_DIRS["$project"]=$(cd "$dir"; git rev-parse --show-toplevel)
     fi
-    return 1
 }
 
 extract_dirs() {
@@ -177,6 +172,8 @@ else
 fi
 
 source "$BASEDIR/common$SUFFIX"
+
+PIPELINES_REPO=$(cd "$PIPELINES_DIR" && basename $(git config --local remote.origin.url) .git)
 
 if [ -n "$DCI_QUEUE_RESOURCE" ]; then
     if [ $# -lt 2 ]; then
@@ -301,18 +298,14 @@ if [ -n "$NO_CHECK" ] ||
     fi
 fi
 
-# Add local pipelines directories to PIPELINES_DIRS to be able to find
-# new pipeline job defs.
-IFS=':' read -ra DIRS <<< "$PIPELINES_DIRS"
-for d in "${DIRS[@]}"; do
-    proj="$(get_project "$d")"
-    if [ -n "$proj" ] && [ -d "$PWD/$proj" ]; then
-        local_dir="$PWD/$proj/$(cd $d; git rev-parse --show-prefix)"
-        # remove trailing /
-        local_dir=${local_dir%/}
-        PIPELINES_DIRS="$PIPELINES_DIRS:$local_dir"
-    fi
-done
+# compute the command line arguments according to the extracted
+# directories
+if [ -d "$PIPELINES_REPO" ]; then
+    PIPELINES_PATH=$(cd "$PIPELINES_DIR" && git rev-parse --show-prefix)
+    PIPELINES="$PWD/$PIPELINES_REPO/$PIPELINES_PATH"
+else
+    PIPELINES=$PIPELINES_DIR
+fi
 
 # compute pipelines and args
 OCP_PIPELINES=
@@ -332,36 +325,15 @@ for arg in "$@"; do
             ;;
         *)
             # Verify if the pipeline file exists
-            pipeline=$(find_pipeline_file "$arg" "$PIPELINES_DIRS")
-            if [ -z "$pipeline" ] || [ ! -r "$pipeline" ]; then
-                error "Unable to find $arg pipeline in PIPELINES_DIRS: $PIPELINES_DIRS" 1>&2
+            pipeline="$PIPELINES/${arg}-pipeline.yml"
+            if [ ! -r $pipeline ]; then
+                error "Unable to find $arg pipeline"
             fi
-            # Store the source directory for this pipeline (before copying)
-            pipeline_source_dir=$(dirname "$pipeline")
-            pipeline_basename=$(basename "$pipeline")
-            # Get the project from the git directory
-            pipeline_project=$(basename $(get_project "$pipeline_source_dir"))
-            # If the project is checkouted, use the local copy
-            if [ -d "$PWD/$pipeline_project" ]; then
-                # compute the local path of the pipeline from the change
-                pipeline="$PWD/$pipeline_project/$(cd $pipeline_source_dir; git rev-parse --show-prefix)/$pipeline_basename"
-                # Copy the pipeline to the current working directory
-                # changing ~ to $HOME to have good substitution later
-                sed -e "s@~@$HOME@g" "$pipeline" > "$PWD/$pipeline_basename"
-                # changing all the paths to the local change
-                sed -i -e "s@$(cd "$pipeline_source_dir"; git rev-parse --show-toplevel)@$PWD/$pipeline_project@g" "$PWD/$pipeline_basename"
-            else
-                # Copy the pipeline to the current working directory
-                # changing ~ to $HOME to have good substitution later
-                sed -e "s@~@$HOME@g" "$pipeline" > "$PWD/$pipeline_basename"
-            fi
-            # point to the copied pipeline
-            pipeline="$PWD/$pipeline_basename"
             # remove succes_tag and change fallback_last_success lines from
             # the pipelines to be sure the jobs will not tag the
             # components and launch fallback jobs
-            sed -i -e '/success_tag/d' -e 's/fallback_last_success/allback_last_success/' "$pipeline"
-            ALL_PIPELINES="$ALL_PIPELINES $pipeline"
+            sed -e '/success_tag/d' -e 's/fallback_last_success/allback_last_success/' < $pipeline > $PWD/$(basename $pipeline)
+            pipeline="$PWD/$(basename $pipeline)"
             if grep -q -E "^\s*-?\s*ansible_playbook\s*:\s*[\"']?/usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml[\"']?" $pipeline; then
                 CNF_PIPELINES="$CNF_PIPELINES $pipeline"
             else
@@ -371,6 +343,7 @@ for arg in "$@"; do
                     ZTP_NAMES="$ZTP_NAMES $ZTP_NAME"
                 fi
             fi
+            ALL_PIPELINES="$ALL_PIPELINES $pipeline"
             for NAME in $("$BASEDIR"/yaml2json "$pipeline"|jq -r '.[].name'); do
                 NAME_TO_PIPELINE[$NAME]="$pipeline"
                 NAME_TO_QUEUE[$NAME]="$num"
@@ -408,17 +381,9 @@ for repo in $(ls -d */.git);do
     GIT_REPOS="$GIT_REPOS$PWD/${repo%/.git},"
 done
 
-# Check ansible.cfg in source directories of pipelines (use first one found)
-ansible_cfg_found=0
-for pipeline in $ALL_PIPELINES; do
-    source_dir="$(dirname $pipeline)"
-    if [ -n "$source_dir" ] && [ -r "$source_dir/ansible.cfg" ]; then
-        cp "$source_dir/ansible.cfg" ansible.cfg
-        ansible_cfg_found=1
-        break
-    fi
-done
-if [ $ansible_cfg_found -eq 0 ]; then
+if [ -r $PIPELINES/ansible.cfg ]; then
+    cp $PIPELINES/ansible.cfg ansible.cfg
+else
     if [ -d dci-openshift-agent ]; then
         cp dci-openshift-agent/ansible.cfg ansible.cfg
     else
@@ -463,6 +428,13 @@ if [ -d dci-openshift-agent ]; then
     fi
     for pipeline in $OCP_PIPELINES; do
         sed -i -e "s@/var/lib/dci-openshift-agent@$PWD/dci-openshift-agent@g" -e "s@ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml@ansible_playbook: $PWD/dci-openshift-agent/dci-openshift-agent.yml@" $pipeline
+    done
+fi
+
+if [ -d $PIPELINES_REPO ]; then
+    PIPELINES_TOPDIR=$(cd $PIPELINES_DIR && git rev-parse --show-toplevel)
+    for pipeline in $ALL_PIPELINES; do
+        sed -i -e "s@$PIPELINES_TOPDIR@$PWD/$PIPELINES_REPO@" $pipeline
     done
 fi
 
@@ -514,31 +486,6 @@ for key in "${!ALL_DIRS[@]}"; do
     echo "$key => ${ALL_DIRS[$key]}"
 done
 
-# replace local directories in INVENTORIES_DIRS
-if [ -n "$INVENTORIES_DIRS" ]; then
-    NEW_INVENTORIES_DIRS=
-    IFS=':' read -ra DIRS <<< "$INVENTORIES_DIRS"
-    for dir in "${DIRS[@]}"; do
-        # Expand ~ if present
-        dir="${dir/#\~/$HOME}"
-        # check if dir is a local project
-        project=$(basename $(get_project "$dir"))
-        if [ -n "$project" ] && [ -d "$PWD/$project" ]; then
-            local_dir="$PWD/$project"
-            # compute the local path of the inventory dir from the change
-            local_dir="$PWD/$project/$(cd $dir; git rev-parse --show-prefix)"
-            # remove trailing /
-            local_dir=${local_dir%/}
-            NEW_INVENTORIES_DIRS="$NEW_INVENTORIES_DIRS:$local_dir"
-        else
-            NEW_INVENTORIES_DIRS="$NEW_INVENTORIES_DIRS:$dir"
-        fi
-    done
-    # remove leading :
-    INVENTORIES_DIRS=${NEW_INVENTORIES_DIRS#:}
-    export INVENTORIES_DIRS
-fi
-
 # edit pipeline files to reflect local changes
 for pipeline in $ALL_PIPELINES; do
     # replace the local dirs
@@ -561,8 +508,6 @@ for pipeline in $ALL_PIPELINES; do
     fi
     # force to use the copy of ansible.cfg and substitute @RESOURCE and @QUEUE
     sed -i -e "s/@RESOURCE/$RES/" -e "s/@QUEUE/$DCI_QUEUE/" -e "s@\(^\s*ansible_cfg:\s*\).*@\1$PWD/ansible.cfg@" $pipeline
-    # resolve relative inventories after @QUEUE/@RESOURCE replacement
-    resolve_inventories "$pipeline"
 done
 
 cat ansible.cfg
@@ -695,10 +640,6 @@ if [ -z "$SUFFIX" ]; then
 
     if [ -d python-dciclient ]; then
         export DCI_VAULT_CLIENT=$PWD/.venv/bin/dci-vault-client
-    fi
-
-    if [ -d dci-pipeline ]; then
-        export PATH=$PWD/dci-pipeline/tools:$PATH
     fi
 else
     if [ -d dci-pipeline ]; then
