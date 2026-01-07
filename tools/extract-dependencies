@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (C) 2020-2025 Red Hat, Inc.
+# Copyright (C) 2020-2026 Red Hat, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
 # not use this file except in compliance with the License. You may obtain
@@ -34,10 +34,11 @@ fi
 
 . "$BASEDIR/common$SUFFIX"
 
-GH_API_URL=${REV_PROXY_URL:=https://api.github.com}
-GH_CLONE_URL=${REV_PROXY_URL:=https://github.com}
-# remove https:// from GH_CLONE_URL for use in git clone URL
+GH_API_URL=${REV_PROXY_URL:-https://api.github.com}
+GH_CLONE_URL=${REV_PROXY_URL:-https://github.com}
+# remove https:// or http:// from GH_CLONE_URL for use in git clone URL
 GH_CLONE_BASE_URL=${GH_CLONE_URL#https://}
+GH_CLONE_BASE_URL=${GH_CLONE_BASE_URL#http://}
 
 export GIT_COMMITTER_NAME="Extractor"
 export GIT_COMMITTER_EMAIL="noaddress@nowhere.com"
