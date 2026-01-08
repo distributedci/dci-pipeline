@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (C) 2024 Red Hat, Inc.
+# Copyright (C) 2024-2026 Red Hat, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
 # not use this file except in compliance with the License. You may obtain
@@ -129,9 +129,12 @@ for json in $(ls $DIR/*.json); do
         STATUSES_URL=$(jq -r .statuses_url $json)
         GH_HEADERS=(
           "Accept: application/vnd.github.v3+json"
-          "Authorization: token ${REPO_TOKEN}"
           "X-GitHub-Api-Version: 2022-11-28"
         )
+
+        if [ -n "$REPO_TOKEN" ]; then
+            GH_HEADERS+=("Authorization: token ${REPO_TOKEN}")
+        fi
 
         if [ -z "$FORCE" ]; then
             # get the current status
