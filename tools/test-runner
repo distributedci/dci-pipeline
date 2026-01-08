@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (C) 2022-2025 Red Hat, Inc.
+# Copyright (C) 2022-2026 Red Hat, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
 # not use this file except in compliance with the License. You may obtain
@@ -247,6 +247,10 @@ else
     URL=$(jq -r .html_url github.json)
     PIPELINENAME=pr-$REPO-$NUMBER
     BODY="$(jq -r .body github.json)"
+
+    if [ -n "$REV_PROXY_URL" ]; then
+        URL=${URL/$REV_PROXY_URL/https://github.com}
+    fi
 fi
 
 # check Test-Hints: force-check string in the description of the change
