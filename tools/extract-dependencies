@@ -157,5 +157,4 @@ while read line; do
           fi
       fi
   fi
-  cd $TARGET
 done
