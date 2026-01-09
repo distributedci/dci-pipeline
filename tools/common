@@ -3,6 +3,7 @@
 
 GITHUB_CHECK_NAME="DCI / DCI Job"
 PIPELINES_DIR="$HOME/pipelines"
+INVENTORIES_DIRS=
 declare -A SLACK_ALERT_WEBHOOKS
 
 for p in /etc/dci-pipeline "$HOME/.config/dci-pipeline"; do
@@ -11,3 +12,98 @@ for p in /etc/dci-pipeline "$HOME/.config/dci-pipeline"; do
         break
     fi
 done
+
+echo "INVENTORIES_DIRS is set to: $INVENTORIES_DIRS" 1>&2
+
+# Backward compatibility
+if [ -z "$PIPELINES_DIRS" ]; then
+    PIPELINES_DIRS="$PIPELINES_DIR"
+fi
+
+# Find pipeline file in multiple directories (colon-separated)
+find_pipeline_file() {
+    local pipeline_name="$1"
+    local pipeline_file="${pipeline_name}-pipeline.yml"
+    local pipelines_dirs="$2"
+
+    # Split PIPELINES_DIRS by colon only (paths can contain spaces)
+    IFS=':' read -ra DIRS <<< "$pipelines_dirs"
+
+    for dir in "${DIRS[@]}"; do
+        # Expand ~ if present
+        dir="${dir/#\~/$HOME}"
+        # Trim whitespace
+        dir="${dir#"${dir%%[![:space:]]*}"}"
+        dir="${dir%"${dir##*[![:space:]]}"}"
+        local full_path="$dir/$pipeline_file"
+        if [ -r "$full_path" ]; then
+            echo "$full_path"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Resolve inventory path (absolute paths used as-is, relative paths
+# resolved via INVENTORIES_DIRS). @QUEUE/@RESOURCE need to be
+# substituted before resolving.
+resolve_inventory_path() {
+    local inventory_path="$1"
+
+    # If absolute path (starts with /), use as-is (backward compatible)
+    if [[ "$inventory_path" = /* ]]; then
+        echo "$inventory_path"
+        return 0
+    fi
+
+    # Relative path: resolve using INVENTORIES_DIRS directories
+    # Search through each directory in order, checking if the base path exists
+    if [ -n "$INVENTORIES_DIRS" ]; then
+        IFS=':' read -ra DIRS <<< "$INVENTORIES_DIRS"
+        for dir in "${DIRS[@]}"; do
+            # Expand ~ if present
+            dir="${dir/#\~/$HOME}"
+
+            # Check if the full path exists
+            if [ -r "$dir/$inventory_path" ]; then
+                echo "$dir/$inventory_path"
+                return 0
+            fi
+        done
+    fi
+
+    # Return original if INVENTORIES_DIRS not set or path not found
+    echo "$inventory_path"
+    return 0
+}
+
+# Resolve inventory paths after @QUEUE/@RESOURCE
+# substitution to get real paths. This handles relative
+# paths that need to be resolved via INVENTORIES_DIRS
+resolve_inventories() {
+    local pipeline="$1"
+
+    if [ -n "$INVENTORIES_DIRS" ]; then
+        # Extract inventory paths from pipeline and resolve them
+        # Use jq to get all inventory paths, handling both string and null values
+        inventory_paths=$("$BASEDIR/yaml2json" "$pipeline"|jq -r '.[] | select(.ansible_inventory != null) | .ansible_inventory' | sort -u)
+        for inv_path in $inventory_paths; do
+            if [ -n "$inv_path" ] && [[ "$inv_path" != /* ]]; then
+                # Only resolve relative paths (absolute paths are used as-is)
+                # The path may contain @QUEUE/@RESOURCE placeholders, so we resolve
+                # the base path pattern, which will be used after substitution
+                resolved_path=$(resolve_inventory_path "$inv_path")
+                if [ "$resolved_path" != "$inv_path" ] && [ -n "$resolved_path" ]; then
+                    # Escape special characters for sed
+                    escaped_inv_path=$(printf '%s\n' "$inv_path" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                    escaped_resolved_path=$(printf '%s\n' "$resolved_path" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                    # Replace the inventory path in the pipeline file
+                    sed -i -e "s|ansible_inventory: *\"\{0,1\}$escaped_inv_path\"\{0,1\}|ansible_inventory: $escaped_resolved_path|" "$pipeline"
+                fi
+            fi
+        done
+    fi
+}
+
+# common ends here
