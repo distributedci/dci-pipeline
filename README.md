@@ -460,13 +460,24 @@ $ dci-pipeline-schedule ocp-vanilla workload
 ...
 ```
 
-For this to work, you need to configure `PIPELINES_DIR` in one these
+For this to work, you need to configure `PIPELINES_DIRS` in one these
 files: `~/.config/dci-pipeline/config` or
 `/etc/dci-pipeline/config`. Example:
 
 ```Shell
-PIPELINES_DIR=~/my-config-dir/pipelines
+PIPELINES_DIRS=~/my-config-dir/pipelines
 ```
+
+You can also specify multiple directories separated by colons (`:`),
+similar to the PATH environment variable. The directories are searched
+in order, and the first match wins, allowing earlier directories to
+override later ones:
+
+```Shell
+PIPELINES_DIRS=~/base-pipelines:~/project-pipelines:~/custom-pipelines
+```
+
+Inventories are looked-up the same way using the `INVENTORIES_DIRS` variable.
 
 You can also define the default `dci-queue` queue with the
 `DEFAULT_QUEUE` variable. To schedule on a specific `dci-queue` pool,
@@ -612,6 +623,55 @@ change. This will direct `dci-pipeline-check` to test in a specific way:
       custom_config: /path/to/config/for/@QUEUE/@RESOURCE-config.yml
     ...
 ```
+
+### Inventory Path Resolution
+
+To enable reusability of pipeline files across different lab environments,
+you can use relative inventory paths that will be resolved via the
+`INVENTORIES_DIR` configuration variable.
+
+**Configuration:**
+
+```Shell
+# ~/.config/dci-pipeline/config or /etc/dci-pipeline/config
+INVENTORIES_DIR=~/shared-inventories:~/lab-specific-inventories
+```
+
+**Pipeline files with relative inventory paths:**
+
+For `openshift-agent` jobs, use the pattern `@QUEUE/@RESOURCE`:
+
+```YAML
+  - name: openshift-vanilla
+    stage: ocp
+    ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
+    ansible_inventory: inventories/@QUEUE/@RESOURCE
+    topic: OCP-4.18
+    components:
+      - ocp
+```
+
+For `openshift-app-agent` jobs, use the pattern `@QUEUE/@RESOURCE-post.yml`:
+
+```YAML
+  - name: example-cnf
+    stage: cnf
+    ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
+    ansible_inventory: inventories/@QUEUE/@RESOURCE-post.yml
+    use_previous_topic: true
+    components:
+      - nfv-example-cnf-index
+```
+
+**Resolution behavior:**
+
+- **Absolute paths** (starting with `/`): Used as-is, no resolution attempted (backward compatible)
+- **Relative paths**: Resolved by prepending the first directory from `INVENTORIES_DIR`
+  - Example: `inventories/@QUEUE/@RESOURCE` → `<INVENTORIES_DIR>/inventories/@QUEUE/@RESOURCE`
+  - After resolution, `@QUEUE` and `@RESOURCE` are substituted as usual
+
+This allows sharing pipeline files across git repositories while keeping
+inventory files lab-specific.
 
 `dci-pipeline-schedule` and `dci-pipeline-check` are also managing the `topic` of jobs if there are only `dci-openshift-app-agent` job definitions without any `dci-openshift-agent` job definitions in the pipeline. To do so they rely on the running cluster defined by the `KUBECONFIG` environment variable or the ansible variable `kubeconfig_path` defined either in the job definition or in the inventory (`all.vars.kubeconfig_path`). Then they deduce the topic of the job from the OpenShift version of the cluster.
 
