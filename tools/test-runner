@@ -653,13 +653,13 @@ fi
 
 if [ -n "$SUFFIX" ]; then
     echo "Extracting required projects"
-    # Software Factory projects
+    # distributedci projects
     for proj in dci-packaging python-dciclient python-dciauth dci-ansible dci-openshift-agent dci-openshift-app-agent dci-pipeline ansible-collection-community-crypto ansible-collection-community-general ansible-collection-community-libvirt ansible-collection-containers-podman ansible-role-dci-podman ansible-role-dci-sync-registry; do
         if [ ! -d "$proj" ]; then
-            git clone "https://softwarefactory-project.io/r/$proj"
+            git clone "https://github.com/distributedci/$proj"
         fi
     done
-    # GitHub projects
+    # redhatci projects
     if [ ! -d ansible-collection-redhatci-ocp ]; then
         git clone https://github.com/redhatci/ansible-collection-redhatci-ocp.git
     fi
