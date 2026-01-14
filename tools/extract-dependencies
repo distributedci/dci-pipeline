@@ -32,7 +32,7 @@ else
     BASEDIR=/usr/share/dci-pipeline
 fi
 
-. "$BASEDIR/common$SUFFIX"
+source "$BASEDIR/common$SUFFIX"
 
 GH_API_URL=${REV_PROXY_URL:-https://api.github.com}
 GH_CLONE_URL=${REV_PROXY_URL:-https://github.com}
@@ -44,7 +44,7 @@ export GIT_COMMITTER_NAME="Extractor"
 export GIT_COMMITTER_EMAIL="noaddress@nowhere.com"
 
 TARGET="$1"
-test -n "$TARGET" -a -d "$TARGET" && cd "$TARGET"
+test -n "$TARGET" -a -d "$TARGET"
 
 # git log -1 | while read line; do
 while read line; do
@@ -52,6 +52,7 @@ while read line; do
       continue
   fi
   echo "Processing line '$line'"
+  cd "${TARGET}"
   # try to find a github pr first
   if grep -Eiq 'https://github.com/.*/pull' <<< $line; then
       pr=$(sed -e 's@.*/pull/'@@ <<< $line)
