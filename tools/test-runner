@@ -279,6 +279,7 @@ if [ -n "$NO_CHECK" ] ||
         CODE_FILES=(
             'ansible.cfg'
             'group_vars/all'
+            'plays'
             'plays/scripts'
             '\.(yml|j2|py)'
         )
