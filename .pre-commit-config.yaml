@@ -35,4 +35,12 @@ repos:
       - id: pymarkdown
         args: ["-d", "md014,md013", "scan"]
 
+  - repo: local
+    hooks:
+      - id: gitleaks-with-signature
+        name: Gitleaks secret detection with signature
+        entry: .pre-commit-hooks/gitleaks-with-signature.sh
+        language: script
+        pass_filenames: false
+
 ...
