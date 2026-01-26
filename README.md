@@ -837,7 +837,7 @@ first job from the last pipeline with the same name as the one from
 
 ## Development
 
-Submit changes to <https://softwarefactory-project.io/project/Distributed-CI>
+Submit changes to <https://github.com/distributedci/dci-pipeline>
 
 ### Tests
 
@@ -848,7 +848,7 @@ There are 3 kinds of tests:
 - `lint`: static code checks using `flake8` and `black`.
 - `unit`: runs unit tests.
 - `functional`: runs functional tests against a local
-  [dci-dev-env](https://github.com/redhat-cip/dci-dev-env) instance
+  [dci-dev-env](https://github.com/distributedci/dci-dev-env) instance
   prepared with `dev-setup/dci-telcoprovisioning`.
 
 ### pre-commit
