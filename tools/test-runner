@@ -418,6 +418,7 @@ if [ -z "$SUFFIX" ]; then
     for d in $(find . -maxdepth 1 -name 'ansible-collection-*' -type d -exec basename {} \; 2>/dev/null); do
         mkdir -p collections
         LOCAL_COLLECTIONS=$PWD/collections
+        
         export ANSIBLE_COLLECTIONS_PATHS=$LOCAL_COLLECTIONS:/usr/share/ansible/collections
         cd $d
         rm -f *.tar.gz
