@@ -72,7 +72,7 @@ done
 cp ../python-dciclient/dist/* dist/
 cp ../python-dciauth/dist/* dist/
 
-if [[ "$TAG" =~ ":gerrit-" ]]; then
+if [[ -n "$QUAY_EXPIRATION" ]]; then
 	# Make snapshot/dev builds auto-expire in Quay registries
 	echo "LABEL quay.expires-after=7d" >> Dockerfile
 fi
