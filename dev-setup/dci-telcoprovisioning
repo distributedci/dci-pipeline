@@ -23,7 +23,7 @@ import requests
 
 DCI_LOGIN = os.environ.get("DCI_LOGIN", "admin")
 DCI_PASSWORD = os.environ.get("DCI_PASSWORD", "admin")
-DCI_CS_URL = os.environ.get("DCI_CS_URL", "http://127.0.0.1:5000")
+DCI_CS_URL = os.environ.get("DCI_CS_URL", "http://127.0.0.1:8000")
 
 
 def check_return(response):

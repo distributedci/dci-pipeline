@@ -1,0 +1,8 @@
+---
+# Mapping rules for playbook to inventory patterns
+# Used by check_inventory_mapping to validate inventory paths
+mappings:
+  - playbook_pattern: "/usr/share/dci-openshift-agent/dci-openshift-agent.yml"
+    inventory_pattern: "@QUEUE/@RESOURCE"
+  - playbook_pattern: "/usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml"
+    inventory_pattern: "@QUEUE/@RESOURCE-installed.yml"
