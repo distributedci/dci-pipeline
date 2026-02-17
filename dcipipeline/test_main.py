@@ -19,6 +19,7 @@ import unittest
 import mock
 
 from dcipipeline.main import (
+    dci,
     extract_build_tags,
     extract_tags,
     filter_type_tags,
@@ -347,6 +348,23 @@ class TestMain(unittest.TestCase):
             generate_query("ocp", ["fallback"]),
             "and(eq(state,active),eq(type,ocp),contains(tags,fallback))",
         )
+
+    def test_dci_200(self):
+        """dci returns 200 without retry."""
+        resp = mock.Mock(status_code=200)
+        func = mock.Mock(return_value=resp)
+        self.assertEqual(dci(func), resp)
+        func.assert_called_once()
+
+    def test_dci_500(self):
+        """dci retries on 5xx then returns the response."""
+        resp_500 = mock.Mock(status_code=500)
+        resp_200 = mock.Mock(status_code=200)
+        func = mock.Mock(side_effect=[resp_500, resp_200])
+        with mock.patch("dcipipeline.main.time.sleep"):
+            result = dci(func)
+        self.assertEqual(result, resp_200)
+        self.assertEqual(func.call_count, 2)
 
 
 if __name__ == "__main__":
