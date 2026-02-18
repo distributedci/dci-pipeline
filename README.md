@@ -25,7 +25,7 @@ Once `dci-pipeline` package is installed, the files and resources you can find i
 - `/etc/sysconfig` folder contains the content of `sysconfig` folder, which is `dci-pipeline` file.
 - `/etc/bash_completion.d` contains a `dci-queue` file related to this tool, which comes from `dciqueue/dci-queue.bash_completion` file.
 - `/usr/share/dci-pipeline` contains the following scripts from `tools` folder in this repo: `alert`, `common`, `dci-pipeline-helper`, `extract-dependencies`, `get-config-entry`, `loop_until_failure`, `loop_until_success`, `send_status`, `send_comment`, `test-runner` and `yaml2json`. If `podman` flavour is selected, then `<script>-podman` scripts are placed here too.
-- `/usr/bin` folder holds scripts such as `dci-pipeline`, `dci-auto-launch`, `dci-pipeline-schedule`, `dci-pipeline-check`, `dci-queue`, `dci-agent-ctl`, `dci-rebuild-pipeline`, `dci-settings2pipeline` and `dci-diff-pipeline`. If `podman` flavour is selected, then `<script>-podman` scripts are placed here too. Note that some of these scripts come from `tools` folder, and others are generated from folders like `dciagent`, `dcipipeline` or `dciqueue`, and their podman flavours are located in `container` folder.
+- `/usr/bin` folder holds scripts such as `dci-pipeline`, `dci-auto-launch`, `dci-pipeline-schedule`, `dci-pipeline-check`, `dci-queue`, `dci-agent-ctl`, `dci-rebuild-pipeline`, `dci-settings2pipeline`, `dci-diff-pipeline` and `dci-install-git-hooks`. If `podman` flavour is selected, then `<script>-podman` scripts are placed here too. Note that some of these scripts come from `tools` folder, and others are generated from folders like `dciagent`, `dcipipeline` or `dciqueue`, and their podman flavours are located in `container` folder.
 
 Also, have in mind that:
 
@@ -859,3 +859,64 @@ using <https://pre-commit.com/> before accepting a commit, do the following:
 ```ShellSession
 $ tox -epre-commit
 ```
+
+### dci-install-git-hooks
+
+`dci-install-git-hooks` installs gitleaks-based git hooks (`pre-commit`
+and `commit-msg`) into a git repository. These hooks scan staged
+changes for hardcoded secrets using
+[gitleaks](https://github.com/gitleaks/gitleaks) and embed a
+cryptographic signature into each commit message (`Gitleaks-Sign` and
+`Gitleaks-Hash` trailers).
+
+The signature binds the gitleaks scan result to the exact commit
+content (via the git tree hash), so it cannot be reused across
+different commits. A CI workflow can then verify that every PR commit
+was scanned locally before being pushed.
+
+#### Prerequisites
+
+[gitleaks](https://github.com/gitleaks/gitleaks) must be installed and
+available in your `PATH`.
+
+#### Usage
+
+Install hooks into the current repository:
+
+```ShellSession
+$ dci-install-git-hooks
+```
+
+Install hooks into a specific repository:
+
+```ShellSession
+$ dci-install-git-hooks /path/to/repo
+```
+
+The command creates symlinks in `.git/hooks/` pointing to the hook
+scripts shipped with `dci-pipeline`. If a hook already exists, it is
+skipped.
+
+#### What the hooks do
+
+1. **pre-commit**: runs `gitleaks git --pre-commit` on staged changes.
+   If no secrets are found, it generates a signature containing the
+   gitleaks version, a UTC timestamp, and the git tree hash of the
+   staged content. The signature and its SHA-256 hash are stored in
+   `.git/.gitleaks_data`.
+
+2. **commit-msg**: appends the `Gitleaks-Sign` and `Gitleaks-Hash`
+   trailers from `.git/.gitleaks_data` to the commit message.
+
+#### CI verification
+
+A GitHub Actions workflow (`.github/workflows/gitleaks-verify.yml`)
+verifies the gitleaks signature on every pull request:
+
+- Checks that `Gitleaks-Sign` and `Gitleaks-Hash` are present in the
+  last commit message.
+- Verifies the SHA-256 hash matches the signature.
+- Decodes the signature and checks that the embedded tree hash matches
+  the actual commit tree hash.
+- Warns if the signature is older than 7 days.
+- Runs a full gitleaks scan on the PR diff as a safety net.

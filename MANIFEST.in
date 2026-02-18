@@ -19,4 +19,5 @@ include dciqueue/dci-queue.bash_completion
 include requirements.txt
 include sysconfig/*
 include systemd/*
+include hooks/*
 include tools/*
