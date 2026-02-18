@@ -1,0 +1,86 @@
+#!/bin/bash
+#
+# Copyright (C) 2026 Red Hat, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
+set -e
+
+TOPDIR=$(cd $(dirname $0); pwd)
+
+# Determine where the hook files are located
+if [ -d "$TOPDIR/../hooks" ]; then
+    HOOKSDIR=$(cd "$TOPDIR/../hooks"; pwd)
+else
+    HOOKSDIR=/usr/share/dci-pipeline/hooks
+fi
+
+HOOKS="pre-commit commit-msg"
+
+usage() {
+    cat 1>&2 <<EOF
+Usage: $(basename $0) [-h|--help] [<git-repo-directory>]
+
+Install gitleaks-based git hooks (pre-commit, commit-msg) into a git
+repository by creating symlinks to the hooks shipped with dci-pipeline.
+
+Options:
+    -h, --help    Print this help
+
+Arguments:
+    <git-repo-directory>    Path to the git repository (default: current directory)
+EOF
+    exit 0
+}
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    usage
+fi
+
+TARGET_DIR="${1:-.}"
+
+# Validate target is a git repository
+TOPLEVEL=$(git -C "$TARGET_DIR" rev-parse --show-toplevel 2>/dev/null) || {
+    echo "Error: $TARGET_DIR is not a git repository" 1>&2
+    exit 1
+}
+
+DEST="$TOPLEVEL/.git/hooks"
+
+# Validate source hooks directory exists
+if [ ! -d "$HOOKSDIR" ]; then
+    echo "Error: hooks source directory not found: $HOOKSDIR" 1>&2
+    exit 1
+fi
+
+# Ensure the hooks directory exists
+mkdir -p "$DEST"
+
+INSTALLED=0
+SKIPPED=0
+
+for hook in $HOOKS; do
+    if [ -e "$DEST/$hook" ]; then
+        echo "Skipping $hook: $DEST/$hook already exists"
+        SKIPPED=$((SKIPPED + 1))
+    else
+        ln -s "$HOOKSDIR/$hook" "$DEST/$hook"
+        echo "Installed $hook -> $HOOKSDIR/$hook"
+        INSTALLED=$((INSTALLED + 1))
+    fi
+done
+
+echo ""
+echo "Summary: $INSTALLED hook(s) installed, $SKIPPED hook(s) skipped"
+
+# dci-install-git-hooks ends here
