@@ -8,7 +8,7 @@
 
 Name:           dci-pipeline
 # to keep in sync with setup.py and Dockerfile
-Version:        0.14.0
+Version:        0.15.0
 Release:        1.VERS%{?dist}
 Summary:        CI pipeline management for DCI jobs
 License:        ASL 2.0
@@ -23,7 +23,7 @@ Requires:       dci-queue = %{version}-%{release}
 BuildRequires:  python2-devel
 BuildRequires:  python2-setuptools
 Requires:       PyYAML
-Requires:       python2-dciclient >= 3.1.0
+Requires:       python2-dciclient >= 4.2.0
 Requires:       python2-ansible-runner
 Requires:       python-prettytable
 Requires:       python2-libselinux
@@ -34,7 +34,7 @@ Requires:       python2-virtualenv
 BuildRequires:  python3-devel
 BuildRequires:  python3-setuptools
 Requires:       python3-PyYAML
-Requires:       python3-dciclient >= 3.1.0
+Requires:       python3-dciclient >= 4.2.0
 Requires:       python3-ansible-runner
 Requires:       python3-libselinux
 Requires:       python3-virtualenv
@@ -186,6 +186,9 @@ exit 0
 %attr(2770, dci-queue, dci-queue) /var/lib/dci-queue
 
 %changelog
+* Wed Jun 17 2026 Tony Garcia <tonyg@redhat.com> 0.15.0-1
+- Bump to use dciclient with support to redacted files
+
 * Tue Jun  9 2026 Tony Garcia <tonyg@redhat.com> 0.14.0-1
 - Add more post-rewrite git hook
 

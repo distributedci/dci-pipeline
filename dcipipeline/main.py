@@ -39,6 +39,7 @@ from dciclient.v1.api import identity as dci_identity
 from dciclient.v1.api import job as dci_job
 from dciclient.v1.api import jobstate as dci_jobstate
 from dciclient.v1.api import pipeline as dci_pipeline
+from dciclient.v1.api import redact as dci_redact
 from dciclient.v1.api import topic as dci_topic
 
 # remove all handlers before adding the console handler to avoid a
@@ -127,14 +128,23 @@ def upload_junit_files_from_dir(context, jobdef, dir):
         _abs_file_path = os.path.join(dir, f)
         if os.path.isfile(_abs_file_path) and f.endswith(".xml"):
             log.info("Uploading junit file: %s" % _abs_file_path)
-            dci(
-                dci_file.create,
-                context,
-                f[:-4],  # remove .xml at the end
-                file_path=_abs_file_path,
-                mime="application/junit",
-                job_id=jobdef["job_info"]["job"]["id"],
-            )
+            redacted_path = None
+            if dci_redact.should_redact(redact=True):
+                dir_name = os.path.dirname(_abs_file_path)
+                redacted_path = os.path.join(dir_name, ".%s.redacted" % f)
+                dci_redact.redact_file(_abs_file_path, redacted_path)
+            try:
+                dci(
+                    dci_file.create,
+                    context,
+                    f[:-4],  # remove .xml at the end
+                    file_path=redacted_path or _abs_file_path,
+                    mime="application/junit",
+                    job_id=jobdef["job_info"]["job"]["id"],
+                )
+            finally:
+                if redacted_path and os.path.exists(redacted_path):
+                    os.remove(redacted_path)
         else:
             log.warning("%s is not a junit file" % _abs_file_path)
 
@@ -779,6 +789,9 @@ def find_dci_ansible_dir(jobdef):
             envvars = {
                 "ANSIBLE_CALLBACK_PLUGINS": os.path.join(dci_ansible_dir, "callback"),
             }
+            pythonpath = os.getenv("PYTHONPATH")
+            if pythonpath:
+                envvars["PYTHONPATH"] = pythonpath
             if jobdef.get("ansible_envvars"):
                 if not isinstance(jobdef.get("ansible_envvars"), dict):
                     log.error("The 'ansible_envvars' jobdef key is not a dict.")
@@ -797,13 +810,22 @@ def upload_ansible_log(context, ansible_log_dir, jobdef):
     ansible_log = os.path.join(ansible_log_dir, "ansible.log")
     if os.path.exists(ansible_log):
         log.info("Uploading ansible.log from %s" % ansible_log)
-        dci(
-            dci_file.create,
-            context,
-            "ansible.log",
-            file_path=ansible_log,
-            job_id=jobdef["job_info"]["job"]["id"],
-        )
+        redacted_path = None
+        if dci_redact.should_redact(redact=True):
+            dir_name = os.path.dirname(ansible_log)
+            redacted_path = os.path.join(dir_name, ".ansible.log.redacted")
+            dci_redact.redact_file(ansible_log, redacted_path)
+        try:
+            dci(
+                dci_file.create,
+                context,
+                "ansible.log",
+                file_path=redacted_path or ansible_log,
+                job_id=jobdef["job_info"]["job"]["id"],
+            )
+        finally:
+            if redacted_path and os.path.exists(redacted_path):
+                os.remove(redacted_path)
     else:
         log.error("ansible.log not found in %s" % ansible_log)
 

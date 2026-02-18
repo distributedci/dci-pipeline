@@ -290,8 +290,9 @@ class TestMain(unittest.TestCase):
         self.assertTrue(not m_upload_junit.called)
         m_rmtree.assert_called_with("/tmp/tmppath")
 
+    @mock.patch("dcipipeline.main.dci_redact.should_redact", return_value=False)
     @mock.patch("dcipipeline.main.dci_file.create")
-    def test_upload_junit_files_from_dir(self, m):
+    def test_upload_junit_files_from_dir(self, m, m_should_redact):
         try:
             os.makedirs("/tmp/junit-tmppath")
         except Exception:
