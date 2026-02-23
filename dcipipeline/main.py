@@ -1422,9 +1422,11 @@ def dci(func, *args, **kwargs):
         time.sleep(_duration)
         resp = func(*args, **kwargs)
         _duration *= 2
-        # max duration at 10mn
         if _duration > 600:
-            _duration = 600
+            log.error(
+                "DCI API error %s, giving up (backoff would exceed 10min)" % (resp,)
+            )
+            break
     _duration = _DEFAULT_WAIT
     return resp
 
