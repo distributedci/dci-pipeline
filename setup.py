@@ -49,6 +49,10 @@ setuptools.setup(
             "dci-queue=dciqueue.main:main",
             "dci-agent-ctl=dciagent.main:main",
             "dci-settings2pipeline=dciagent.main:main_s2p",
+            "dci-pipeline-lint=dcipipelinelint.main:main",
         ],
+    },
+    package_data={
+        "dcipipelinelint": ["data/*.yml"],
     },
 )
