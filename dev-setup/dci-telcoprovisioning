@@ -15,6 +15,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import hashlib
 import json
 import os
 import time
@@ -156,8 +157,11 @@ def authorize_components_access_teams(team_id, components_team_id):
 
 
 def create_component(
-    name, version, topic_id, tag=None, team_id=None, dev=True, active=True
+    name, version, topic_id, tag=None, team_id=None, dev=True, active=True, uid=None
 ):
+    if name.lower() == 'ocp' and uid is None:
+        uid = "sha256:%s" % hashlib.sha256(f"{name.upper()} {version}".encode()).hexdigest()
+
     data = {
         "display_name": f"{name.upper()} {version}",
         "version": version,
@@ -171,6 +175,10 @@ def create_component(
             "pull_url": "http://pullurl.com/",
         },
     }
+    if uid:
+        data["uid"] = uid
+        data["data"]["uid"] = uid
+        data["data"]["digest"] = [uid]
     if team_id:
         data["team_id"] = team_id
     r = post("components", data)
