@@ -8,7 +8,7 @@
 
 Name:           dci-pipeline
 # to keep in sync with setup.py and Dockerfile
-Version:        0.12.0
+Version:        0.13.0
 Release:        1.VERS%{?dist}
 Summary:        CI pipeline management for DCI jobs
 License:        ASL 2.0
@@ -95,6 +95,10 @@ for tool in alert dci-pipeline-helper extract-dependencies get-config-entry loop
 done
 install -m 644 tools/common %{buildroot}%{_datadir}/%{name}/common
 install -m 644 tools/common %{buildroot}%{_datadir}/%{name}/common-podman
+install -d -m 755 %{buildroot}%{_datadir}/%{name}/hooks/
+install -m 755 hooks/pre-commit %{buildroot}%{_datadir}/%{name}/hooks/pre-commit
+install -m 755 hooks/commit-msg %{buildroot}%{_datadir}/%{name}/hooks/commit-msg
+install -m 755 tools/dci-install-git-hooks %{buildroot}%{_bindir}/dci-install-git-hooks
 install -m 755 tools/dci-pipeline-schedule %{buildroot}%{_bindir}/dci-pipeline-schedule
 install -m 755 tools/dci-pipeline-schedule %{buildroot}%{_bindir}/dci-pipeline-schedule-podman
 install -m 755 tools/dci-pipeline-check %{buildroot}%{_bindir}/dci-pipeline-check
@@ -169,6 +173,8 @@ exit 0
 %{_datadir}/%{name}/send_comment
 %{_datadir}/%{name}/test-runner
 %{_datadir}/%{name}/yaml2json
+%{_bindir}/dci-install-git-hooks
+%{_datadir}/%{name}/hooks/
 
 %files podman
 %{_bindir}/*-podman
@@ -179,6 +185,9 @@ exit 0
 %attr(2770, dci-queue, dci-queue) /var/lib/dci-queue
 
 %changelog
+* Wed Feb 18 2026 Frederic Lepied <flepied@redhat.com> 0.13.0-1
+- add dci-install-git-hooks command to install gitleaks-based git hooks
+
 * Mon Dec 29 2025 Frederic Lepied <flepied@redhat.com> 0.12.1-1
 - add multiple paths to PIPELINES_DIR
 - add support for INVENTORIES_DIR in config
