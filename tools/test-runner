@@ -585,6 +585,9 @@ for NAME in $CNF_NAMES; do
     if [ -d operator-sdk ]; then
         OCP_APP_OPT="$OCP_APP_OPT $NAME:ansible_extravars=operator_sdk_source_dir:$PWD/operator-sdk"
     fi
+    if [ -d eco-gotests ]; then
+        OCP_APP_OPT="$OCP_APP_OPT $NAME:ansible_extravars=eco_gotests_path:$PWD/eco-gotests"
+    fi
 done
 
 ALL_TAGS=
@@ -696,6 +699,11 @@ fi
 # dci-openshift-agent exception
 if [ -d dci-openshift-agent ]; then
     chmod -R ug+w dci-openshift-agent/samples
+fi
+
+# eco-gotests needs to be writable for ginkgo to compile test binaries
+if [ -d eco-gotests ]; then
+    chmod -R ug+w eco-gotests
 fi
 
 tail -f output &
