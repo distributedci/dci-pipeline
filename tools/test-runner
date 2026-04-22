@@ -619,11 +619,11 @@ fi
 # set the tags, configuration, change_dir and git repos on all the pipelines
 for NAME in $OCP_NAMES $CNF_NAMES; do
     QUEUE_OPT=
-    CONF=$("$BASEDIR"/yaml2json "${NAME_TO_PIPELINE[$NAME]}" | \
-        jq -r ".[]|select(.name==\"$NAME\")|.configuration" | \
+    CONF=$("$BASEDIR"/yaml2json "${NAME_TO_PIPELINE[$NAME]}" |
+        jq -r ".[]|select(.name==\"$NAME\")|.configuration" |
         sed -e "s/@QUEUE/$DCI_QUEUE/" -e "s/@RESOURCE/$RES/")
     if [ -n "$CONF" ] && [ "$CONF" != null ]; then
-        QUEUE_OPT="$NAME:configuration=$DCI_QUEUE"
+        QUEUE_OPT="$NAME:configuration=${CONF}"
     fi
 
     EXTENDED_TAGS=$TAGS
