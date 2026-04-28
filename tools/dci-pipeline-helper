@@ -55,7 +55,7 @@ trap cleanup 0
 # set PATH for yaml2json
 PATH=$BASEDIR:$PATH
 
-CMD=
+CMD=()
 CNF_PIPELINES=
 OCP_PIPELINES=
 OCPVERS=
@@ -72,7 +72,7 @@ for arg in "$@"; do
             fi
             ;;
         *:*=*)
-            CMD="$CMD $arg"
+            CMD+=( "${arg}" )
             ;;
         *)
             # Verify if the pipeline file exists
@@ -100,7 +100,7 @@ for arg in "$@"; do
             for name in $names; do
                 # Replace @QUEUE/@RESOURCE
                 sed -i -e "s/@QUEUE/$DCI_QUEUE/g" -e "s/@RESOURCE/$RES/g" $pipeline
-                CMD="$CMD $pipeline"
+                CMD+=( "${pipeline}" )
             done
             ;;
     esac
@@ -156,16 +156,16 @@ if [ -z "$OCP_PIPELINES" ]; then
 
             names=$(yaml2json "$pipeline"|jq -r '.[].name')
             for name in $names; do
-                CMD="$CMD $name:topic=$OCP_TOPIC"
+                CMD+=( "${name}:topic=${OCP_TOPIC}" )
             done
         fi
     done
 fi
 
-CMD="dci-pipeline$SUFFIX $CMD"
+CMD=( "dci-pipeline${SUFFIX}" "${CMD[@]}" )
 
-echo "+ $CMD" 1>&2
+echo "+ ${CMD[*]}" 1>&2
 
-exec $CMD
+exec "${CMD[@]}"
 
 # dci-pipeline-helper ends here
