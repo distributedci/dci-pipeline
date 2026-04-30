@@ -1,38 +1,89 @@
 # bash completion for dci-queue
 #
 # usage: dci-queue [-h] [-l {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [-t TOP_DIR]
-#                  [-c]
-#                  {add-pool,add-resource,list,log,remove-pool,remove-resource,run,schedule,search,searchdir,unschedule}
+#                  [-c] [-p]
+#                  {add-crontab,add-pool,add-resource,clean,dci-job,install,list,log,
+#                   remove-crontab,remove-pool,remove-resource,run,schedule,search,
+#                   searchdir,uninstall,unschedule}
 
 _dci_queue() {
-    local cur prev prev_prev opts opt
+    local cur prev opts opt verb pool_name dci_queue_dir i skip_next positional
     opt=-W
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    prev2="${COMP_WORDS[COMP_CWORD-2]}"
+    dci_queue_dir="${DCI_QUEUE_DIR:-$HOME/.dci-queue}"
 
-    case $prev in
-        add-resource|install|list|log|remove-pool|remove-resource|run|schedule|search|searchdir|uninstall|unschedule)
-            opts="$(ls ~/.dci-queue/queue)"
+    # Handle options that take a value argument
+    case "$prev" in
+        -l|--log-level)
+            COMPREPLY=( $(compgen -W "DEBUG INFO WARNING ERROR CRITICAL" -- "$cur") )
+            return 0
             ;;
-        -l)
-            opts="DEBUG INFO WARNING ERROR CRITICAL"
+        -t|--top-dir)
+            COMPREPLY=( $(compgen -d -- "$cur") )
+            return 0
             ;;
-        -t)
-            opt=-f
-            opts=""
-            ;;
-        *)
-            opts="-h -l -t -c add-pool add-resource install list log remove-pool remove-resource run schedule search searchdir uninstall unschedule"
+        -n|--lines)
+            return 0
             ;;
     esac
 
-    if [ "$prev2" == "log" ]; then
-        opts="-f $(ls ~/.dci-queue/log/$prev)"
+    # Find the verb and count positional args after it
+    verb=""
+    pool_name=""
+    positional=0
+    skip_next=0
+    for (( i=1; i < COMP_CWORD; i++ )); do
+        if (( skip_next )); then
+            skip_next=0
+            continue
+        fi
+        case "${COMP_WORDS[i]}" in
+            -l|--log-level|-t|--top-dir|-n|--lines|-b|--block|-p|--priority|-r|--resource|-d|--delay|-e|--extra-pool)
+                skip_next=1
+                ;;
+            -*)
+                ;;
+            *)
+                if [ -z "$verb" ]; then
+                    verb="${COMP_WORDS[i]}"
+                else
+                    if (( positional == 0 )); then
+                        pool_name="${COMP_WORDS[i]}"
+                    fi
+                    positional=$((positional + 1))
+                fi
+                ;;
+        esac
+    done
+
+    if [ -z "$verb" ]; then
+        opts="-h -l -t -c -p add-crontab add-pool add-resource clean dci-job install list log remove-crontab remove-pool remove-resource run schedule search searchdir uninstall unschedule"
+        COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
+        return 0
     fi
 
-    COMPREPLY=( $(compgen $opt "${opts}" -- ${cur}) )
+    case "$verb" in
+        add-crontab|add-resource|clean|dci-job|install|list|log|remove-crontab|remove-pool|remove-resource|run|schedule|search|searchdir|uninstall|unschedule)
+            if (( positional == 0 )); then
+                opts="$(ls "$dci_queue_dir/queue" 2>/dev/null)"
+                COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
+                return 0
+            fi
+            ;;
+    esac
+
+    # Second positional: job id for verbs that take one
+    if (( positional == 1 )) && [ -n "$pool_name" ]; then
+        case "$verb" in
+            log|dci-job|unschedule)
+                opts="$(ls "$dci_queue_dir/queue/$pool_name/" 2>/dev/null | grep -v '^\.' | sed 's/\.exec$//')"
+                COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
+                return 0
+                ;;
+        esac
+    fi
 
     return 0
 }
