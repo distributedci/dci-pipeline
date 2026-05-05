@@ -40,7 +40,7 @@ _dci_queue() {
             continue
         fi
         case "${COMP_WORDS[i]}" in
-            -l|--log-level|-t|--top-dir|-n|--lines|-b|--block|--priority|-r|--resource|-d|--delay|-e|--extra-pool)
+            -l|--log-level|-t|--top-dir|-n|--lines|--priority|-e|--extra-pool)
                 skip_next=1
                 ;;
             -*)
@@ -59,11 +59,41 @@ _dci_queue() {
     done
 
     if [ -z "$verb" ]; then
-        opts="-h -l -t -c -p add-crontab add-pool add-resource clean dci-job install list log remove-crontab remove-pool remove-resource run schedule search searchdir uninstall unschedule"
+        opts="-h --help -l --log-level -t --top-dir -c --console-output -p --podman add-crontab add-pool add-resource clean dci-job install list log remove-crontab remove-pool remove-resource run schedule search searchdir uninstall unschedule"
         COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
         return 0
     fi
 
+    # Subcommand-specific flags
+    if [[ "$cur" == -* ]]; then
+        case "$verb" in
+            log)
+                opts="-f --follow -n --lines"
+                ;;
+            schedule)
+                opts="-b --block -C --command-output -f --force -r --remove-resource -p --priority -e --extra-pool"
+                ;;
+            run)
+                opts="-C --command-output"
+                ;;
+            add-pool)
+                opts="-n --no-install"
+                ;;
+            remove-pool)
+                opts="-n --no-uninstall"
+                ;;
+            remove-resource)
+                opts="-f --force"
+                ;;
+            *)
+                return 0
+                ;;
+        esac
+        COMPREPLY=( $(compgen -W "$opts" -- "$cur") )
+        return 0
+    fi
+
+    # First positional after verb: pool name
     case "$verb" in
         add-crontab|add-resource|clean|dci-job|install|list|log|remove-crontab|remove-pool|remove-resource|run|schedule|search|searchdir|uninstall|unschedule)
             if (( positional == 0 )); then
