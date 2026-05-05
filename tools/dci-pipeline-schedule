@@ -54,7 +54,7 @@ fi
 # set PATH for yaml2json
 PATH=$BASEDIR:$PATH
 
-CMD=
+CMD=()
 OPTS=
 NUM=2
 
@@ -67,7 +67,7 @@ while [ -n "$1" ]; do
         -p)
             OPTS="$OPTS -e $2"
             shift 2
-            CMD="$CMD -p$NUM"
+            CMD+=( "-p${NUM}" )
             NUM=$((NUM + 1))
             ;;
         -*)
@@ -75,20 +75,20 @@ while [ -n "$1" ]; do
             shift
             ;;
         *)
-            CMD="$CMD $1"
+            CMD+=( "$1" )
             shift
             ;;
     esac
 done
 
 if [ -z "$DCI_QUEUE" ] || [ -n "$DCI_QUEUE_RESOURCE" ]; then
-    CMD="env DCI_QUEUE=$DCI_QUEUE RES=$RES $BASEDIR/dci-pipeline-helper$SUFFIX $CMD"
+    CMD=( env DCI_QUEUE="${DCI_QUEUE}" RES="${RES}" "${BASEDIR}/dci-pipeline-helper${SUFFIX}" "${CMD[@]}" )
 else
-    CMD="dci-queue schedule $OPTS $DCI_QUEUE -- env DCI_QUEUE=$DCI_QUEUE RES=$RES KUBECONFIG=$KUBECONFIG $BASEDIR/dci-pipeline-helper$SUFFIX $CMD"
+    CMD=( dci-queue schedule ${OPTS} "${DCI_QUEUE}" -- env DCI_QUEUE="${DCI_QUEUE}" RES="${RES}" KUBECONFIG="${KUBECONFIG}" "${BASEDIR}/dci-pipeline-helper${SUFFIX}" "${CMD[@]}")
 fi
 
-echo "+ $CMD" 1>&2
+echo "+ ${CMD[*]}" 1>&2
 
-exec $CMD
+exec "${CMD[@]}"
 
 # dci-pipeline-schedule ends here
