@@ -134,6 +134,7 @@ def upload_junit_files_from_dir(context, jobdef, dir):
                 file_path=_abs_file_path,
                 mime="application/junit",
                 job_id=jobdef["job_info"]["job"]["id"],
+                redact=True,
             )
         else:
             log.warning("%s is not a junit file" % _abs_file_path)
@@ -803,6 +804,7 @@ def upload_ansible_log(context, ansible_log_dir, jobdef):
             "ansible.log",
             file_path=ansible_log,
             job_id=jobdef["job_info"]["job"]["id"],
+            redact=True,
         )
     else:
         log.error("ansible.log not found in %s" % ansible_log)
