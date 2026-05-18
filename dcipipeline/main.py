@@ -385,13 +385,11 @@ def generate_query(c_type, fallback_tags):
     if "?" in c_type:
         c_type, c_query = c_type.split("?", 1)
         c_query_tags, c_query_fields = extract_tags(c_query.split("&"))
-        c_query_build_tags, c_query_other_tags = extract_build_tags(
-            c_query_tags + fallback_tags
-        )
-        # "type:%s,%s" % (c_type, ",".join(c_query_fields))
+        explicit_tags = [t for tag in c_query_tags for t in tag.split(",")]
         query_clause = (
             f"and(eq(type,{c_type}){generate_and_query_clause(c_query_fields)}"
-            + generate_query_from_tags(c_query_other_tags, c_query_build_tags, c_type)
+            + generate_tags_query_clause(None, explicit_tags)
+            + generate_query_from_tags(fallback_tags, [], c_type)
             + ")"
         )
     else:
