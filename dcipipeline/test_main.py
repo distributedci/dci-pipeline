@@ -349,6 +349,18 @@ class TestMain(unittest.TestCase):
             "and(eq(state,active),eq(type,ocp),contains(tags,fallback))",
         )
 
+    def test_generate_query_explicit_tags(self):
+        self.assertEqual(
+            generate_query("ose-tests?tags:ocp-vanilla-4.8-ok,build:dev&version:20200628", []),
+            "and(eq(type,ose-tests),eq(version,20200628),contains(tags,ocp-vanilla-4.8-ok),contains(tags,build:dev))",
+        )
+
+    def test_generate_query_explicit_tags_with_fallback(self):
+        self.assertEqual(
+            generate_query("ocp?tags:build:dev", ["build:ga"]),
+            "and(eq(type,ocp),contains(tags,build:dev),or(contains(tags,build:ga)))",
+        )
+
     def test_dci_200(self):
         """dci returns 200 without retry."""
         resp = mock.Mock(status_code=200)
