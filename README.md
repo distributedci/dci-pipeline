@@ -482,7 +482,10 @@ $ dci-pipeline-schedule -p my-pool ocp-vanilla workload
 The `dci-pipeline-lint` utility validates dci-pipeline job definition files
 for common issues and best practices. It performs checks such as filename
 format validation, stage name validation, topic presence, inventory path
-validation, and more. Run it on your pipeline files before committing:
+validation, correct usage of `dci_config_dirs` (plural, for
+dci-openshift-agent) vs `dci_config_dir` (singular, for
+dci-openshift-app-agent), and more. Run it on your pipeline files before
+committing:
 
 ```ShellSession
 $ dci-pipeline-lint pipeline.yml
