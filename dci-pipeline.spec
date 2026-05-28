@@ -183,6 +183,9 @@ exit 0
 - add multiple paths to PIPELINES_DIR
 - add support for INVENTORIES_DIR in config
 
+* Fri Dec 19 2025 Frederic Lepied <flepied@redhat.com> 0.12.0-1
+- add automatic type conversion for command line arguments (int, float, bool)
+
 * Mon Jun 02 2025 Frederic Lepied <flepied@redhat.com> 0.11.1-1
 - add support for multi-pool in dci-queue commands
 
