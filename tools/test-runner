@@ -535,8 +535,8 @@ for NAME in $CNF_NAMES; do
             KUBECONFIG=$("$BASEDIR"/yaml2json "$inventory"|jq -r '.all.vars.kubeconfig_path')
         fi
         if [ -n "$KUBECONFIG" ] && [ "$KUBECONFIG" != null ]; then
-            # replace {{ lookup('env', 'HOME') }} and ~ by $HOME in KUBECONFIG
-            KUBECONFIG=$(sed -e "s@{{\s*lookup('env',\s*'HOME')\s*}}@$HOME@" -e "s@~/@$HOME/@" <<< "$KUBECONFIG")
+            # replace {{ lookup('env', 'HOME') }} and ~ by $HOME, and {{ cluster }} by $RES in KUBECONFIG
+            KUBECONFIG=$(sed -e "s@{{\s*lookup('env',\s*'HOME')\s*}}@$HOME@" -e "s@~/@$HOME/@" -e "s@{{\s*cluster\s*}}@$RES@" <<< "$KUBECONFIG")
             OCPVERS=$(KUBECONFIG=$KUBECONFIG oc version -o json|jq -r .openshiftVersion)
             OCPVERS=${OCPVERS%%-*}
             # extract the DCI topic
