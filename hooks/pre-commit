@@ -1,0 +1,17 @@
+#!/bin/bash
+
+set -e
+
+# Exit when gitleaks is not installed
+if ! command -v gitleaks &> /dev/null; then
+    echo "gitleaks is not installed. Aborting..." >&2
+    exit 1
+fi
+
+# Run gitleaks to detect hardcoded secrets
+gitleaks git --pre-commit --staged --no-banner --no-color --log-level error --verbose
+
+# Signal success so the commit-msg hook generates the signature
+gitleaks version > .git/.gitleaks_passed
+
+exit 0
