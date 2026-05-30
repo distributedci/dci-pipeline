@@ -174,6 +174,7 @@ exit 0
 %{_datadir}/%{name}/test-runner
 %{_datadir}/%{name}/yaml2json
 %{_bindir}/dci-install-git-hooks
+%{_bindir}/dci-pipeline-lint
 %{_datadir}/%{name}/hooks/
 
 %files podman
