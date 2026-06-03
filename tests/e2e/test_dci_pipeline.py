@@ -163,15 +163,13 @@ def test_dci_pipeline_edge():
     )
     prefix = "      "
     aligned = prefix + out.replace("\n", "\n" + prefix)
-    with open(inventory, "w") as fp:
-        fp.write(
-            """all:
+    inventory_content = f"""all:
   vars:
     answer: !vault |
-%s
+{aligned}
 """
-            % aligned
-        )
+    with open(inventory, "w") as fp:
+        fp.write(inventory_content)
     rc = main(
         [
             "dci-pipeline",

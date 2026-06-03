@@ -309,6 +309,42 @@ class TestQueue(unittest.TestCase):
             1,
         )
 
+    def test_schedule_block_second_job(self):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "8nodes", "cluster4"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "schedule", "8nodes", "echo", "@RESOURCE"]), 0
+        )
+        self.assertEqual(main.main(["dci-queue", "run", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "schedule", "-b", "8nodes", "echo", "@RESOURCE"]),
+            0,
+        )
+
+    def test_schedule_block_with_extra_pool(self):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "hub"]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "spoke"]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "hub", "hub1"]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "spoke", "spoke1"]), 0)
+        self.assertEqual(
+            main.main(
+                [
+                    "dci-queue",
+                    "schedule",
+                    "-b",
+                    "-e",
+                    "spoke",
+                    "hub",
+                    "--",
+                    "echo",
+                    "@RESOURCE",
+                ]
+            ),
+            0,
+        )
+
     def test_run(self):
         self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
         self.assertEqual(
@@ -787,9 +823,8 @@ class TestQueue(unittest.TestCase):
 
         # Create a test script that will detect if it runs with partial resources
         test_script = os.path.join(self.queue_dir, "test_partial_booking.sh")
-        with open(test_script, "w") as f:
-            f.write(
-                """#!/bin/bash
+        script_content = """\
+#!/bin/bash
 # This script detects if it runs with partial resource booking
 echo "=== RESOURCE BOOKING TEST ==="
 echo "Primary resource: $DCI_QUEUE_RES"
@@ -845,7 +880,8 @@ else
     exit 0
 fi
 """
-            )
+        with open(test_script, "w") as f:
+            f.write(script_content)
         os.chmod(test_script, 0o755)
 
         # Schedule a job that requires both primary and extra resources
