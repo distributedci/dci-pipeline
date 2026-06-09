@@ -8,7 +8,7 @@
 
 Name:           dci-pipeline
 # to keep in sync with setup.py and Dockerfile
-Version:        0.13.0
+Version:        0.14.0
 Release:        1.VERS%{?dist}
 Summary:        CI pipeline management for DCI jobs
 License:        ASL 2.0
@@ -96,8 +96,9 @@ done
 install -m 644 tools/common %{buildroot}%{_datadir}/%{name}/common
 install -m 644 tools/common %{buildroot}%{_datadir}/%{name}/common-podman
 install -d -m 755 %{buildroot}%{_datadir}/%{name}/hooks/
-install -m 755 hooks/pre-commit %{buildroot}%{_datadir}/%{name}/hooks/pre-commit
-install -m 755 hooks/commit-msg %{buildroot}%{_datadir}/%{name}/hooks/commit-msg
+for hook in commit-msg post-rewrite pre-commit; do
+    install -m 754 hooks/$hook %{buildroot}%{_datadir}/%{name}/hooks/$hook
+done
 install -m 755 tools/dci-install-git-hooks %{buildroot}%{_bindir}/dci-install-git-hooks
 install -m 755 tools/dci-pipeline-schedule %{buildroot}%{_bindir}/dci-pipeline-schedule
 install -m 755 tools/dci-pipeline-schedule %{buildroot}%{_bindir}/dci-pipeline-schedule-podman
@@ -185,6 +186,9 @@ exit 0
 %attr(2770, dci-queue, dci-queue) /var/lib/dci-queue
 
 %changelog
+* Tue Jun  9 2026 Tony Garcia <tonyg@redhat.com> 0.14.0-1
+- Add more post-rewrite git hook
+
 * Wed Feb 18 2026 Frederic Lepied <flepied@redhat.com> 0.13.0-1
 - add dci-install-git-hooks command to install gitleaks-based git hooks
 

@@ -25,14 +25,14 @@ else
     HOOKSDIR=/usr/share/dci-pipeline/hooks
 fi
 
-HOOKS="pre-commit commit-msg"
+HOOKS="commit-msg post-rewrite pre-commit"
 
 usage() {
     cat 1>&2 <<EOF
 Usage: $(basename $0) [-h|--help] [<git-repo-directory>]
 
-Install gitleaks-based git hooks (pre-commit, commit-msg) into a git
-repository by creating symlinks to the hooks shipped with dci-pipeline.
+Install gitleaks-based git hooks into a git repository by creating symlinks to
+the hooks shipped with dci-pipeline.
 
 Options:
     -h, --help    Print this help

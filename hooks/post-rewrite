@@ -1,0 +1,6 @@
+#!/bin/bash
+
+if [ "$1" = "rebase" ]; then
+    echo "Rebase detected. Auto updating hook commit comments..."
+    GIT_REINDEX_ONLY=1 git commit --amend --no-edit
+fi
