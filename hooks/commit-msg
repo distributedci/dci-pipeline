@@ -8,7 +8,7 @@ if [[ -f "${GL_PASSED}" ]]; then
     rm -f "${GL_PASSED}"
 
     TREE_HASH=$(git write-tree)
-    TS=$(date --utc +%FT%T)
+    TS=$(date -u +%FT%T)
     GL_SIGN=$(echo -n "${GL_VER}|${TS}|${TREE_HASH}" | base64 -w 0)
     GL_HASH=$(echo -n "${GL_SIGN}" | sha256sum | awk '{print $1}')
 
