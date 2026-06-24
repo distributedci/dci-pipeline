@@ -8,7 +8,7 @@
 
 Name:           dci-pipeline
 # to keep in sync with setup.py and Dockerfile
-Version:        0.14.0
+Version:        0.15.0
 Release:        1.VERS%{?dist}
 Summary:        CI pipeline management for DCI jobs
 License:        ASL 2.0
@@ -186,6 +186,9 @@ exit 0
 %attr(2770, dci-queue, dci-queue) /var/lib/dci-queue
 
 %changelog
+* Thu Jun 25 2026 Tony Garcia <tonyg@redhat.com> 0.15.0-1
+- Add vault file option to decrypt
+
 * Tue Jun  9 2026 Tony Garcia <tonyg@redhat.com> 0.14.0-1
 - Add more post-rewrite git hook
 
