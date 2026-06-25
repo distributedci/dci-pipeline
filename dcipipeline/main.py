@@ -153,15 +153,23 @@ def load_jobdef_file(path, config_dir):
     jobdefs_raw_data = yaml.load(data, Loader=yaml.BaseLoader)
     try:
         creds = load_credentials(jobdefs_raw_data[0], config_dir)
+        vault_file = jobdefs_raw_data[0].get("dci_vault_file")
     except (KeyError, IndexError):
         log.warning("No credentials found to decrypt vault encrypted data.")
         creds = {"DCI_API_SECRET": "fake-secret"}
+        vault_file = None
     # Second pass decrypting !vault statements
-    os.environ["DCI_API_SECRET"] = creds["DCI_API_SECRET"]
     loader = DataLoader()
-    vault_secrets = CLI.setup_vault_secrets(
-        loader=loader, vault_ids=[get_vault_client()]
-    )
+    if vault_file:
+        vault_secrets = CLI.setup_vault_secrets(
+            loader=loader,
+            vault_password_files=[os.path.expanduser(vault_file)],
+        )
+    else:
+        os.environ["DCI_API_SECRET"] = creds["DCI_API_SECRET"]
+        vault_secrets = CLI.setup_vault_secrets(
+            loader=loader, vault_ids=[get_vault_client()]
+        )
     ansible_yaml = []
     for assoc in from_yaml(data, vault_secrets=vault_secrets):
         assoc["_pipeline_path_"] = path
@@ -710,7 +718,10 @@ def get_vault_client():
 
 
 def build_cmdline(jobdef):
-    cmd = "--vault-id %s" % get_vault_client()
+    if "dci_vault_file" in jobdef:
+        cmd = "--vault-password-file %s" % os.path.expanduser(jobdef["dci_vault_file"])
+    else:
+        cmd = "--vault-id %s" % get_vault_client()
     for key, switch in (
         ("ansible_tags", "--tags"),
         ("ansible_skip_tags", "--skip-tags"),
@@ -843,9 +854,12 @@ def run_jobdef(context, jobdef, dci_credentials, data_dir, cancel_cb):
     )
     envvars.update(dci_credentials)
     envvars["DCI_JOB_ID"] = job_info["job"]["id"]
-    # Export the default vault id to be able to decrypt vault
-    # encrypted vars in sub-processes
-    envvars["ANSIBLE_VAULT_IDENTITY_LIST"] = get_vault_client()
+    if "dci_vault_file" in jobdef:
+        envvars["ANSIBLE_VAULT_PASSWORD_FILE"] = os.path.expanduser(
+            jobdef["dci_vault_file"]
+        )
+    else:
+        envvars["ANSIBLE_VAULT_IDENTITY_LIST"] = get_vault_client()
     # export DCI_PLAYBOOK_ARGS to be able to call sub ansible-playbook
     # cmd with the same arguments
     cmdline = build_cmdline(jobdef)

@@ -386,6 +386,30 @@ You can specify extra Ansible variable files using the
       - ocp
 ```
 
+### Using a vault password file
+
+By default, `dci-pipeline` uses the `DCI_API_SECRET` from the remoteCI
+credentials to decrypt `!vault` encrypted values. If you need to use a
+different vault password (for example when not using remoteCI
+credentials), you can specify a `dci_vault_file` key pointing to a
+plaintext file containing the vault password:
+
+```YAML
+  - name: openshift-vanilla
+    stage: ocp
+    ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
+    ansible_inventory: ~/inventories/agent.yml
+    dci_vault_file: ~/.config/dci-pipeline/vault-password.txt
+    dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
+    topic: OCP-4.14
+    components:
+      - ocp
+```
+
+The file must contain a single line with the password used to encrypt
+the vault values. This is the standard Ansible vault password file
+format.
+
 ### Feeding variables from the command line
 
 You can feed variables from the command line to the `dci-pipeline-schedule` and `dci-pipeline-check` commands that we explain below.
