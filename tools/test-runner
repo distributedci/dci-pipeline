@@ -651,6 +651,11 @@ if [ -z "$SUFFIX" ]; then
 
     if [ -d python-dciclient ]; then
         export DCI_VAULT_CLIENT=$PWD/.venv/bin/dci-vault-client
+        export PYTHONPATH="$PWD/python-dciclient${PYTHONPATH:+:$PYTHONPATH}"
+    fi
+
+    if [ -d dci-pipeline ] && [ -x "$PWD/.venv/bin/python3" ]; then
+        pip install -e $PWD/dci-pipeline
     fi
 else
     if [ -d dci-pipeline ]; then
