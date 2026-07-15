@@ -12,24 +12,53 @@ ADD dist/* /usr/src/
 
 RUN set -ex && \
     dnf -y update && \
-    dnf -y install git gcc gettext python3-devel python3-pip python3-setuptools python3-cryptography \
-        python3-netaddr python3-dns python3-firewall make rsync \
-        sudo policycoreutils fuse-overlayfs wget podman jq pigz && \
     dnf -y install https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm && \
-    dnf -y install python3-openshift python3-passlib python3-junit_xml && \
-    mkdir -p /usr/share/dci /usr/share/ansible/roles /etc/ansible/roles /usr/share/ansible/collections && \
+    dnf -y install \
+      fuse-overlayfs \
+      gcc \
+      gettext \
+      git \
+      jq \
+      make \
+      pigz \
+      podman \
+      policycoreutils \
+      python3-cryptography \
+      python3-devel \
+      python3-dns \
+      python3-firewall \
+      python3-junit_xml \
+      python3-netaddr \
+      python3-openshift \
+      python3-passlib \
+      python3-pip \
+      python3-setuptools \
+      rsync \
+      sudo \
+      wget \
+    && \
+    rm -rf /var/cache /var/log/dnf* /var/log/yum.* && \
+    rm -rf /usr/src/* ~/.cache && \
+    dnf clean all
+
+RUN set -ex && \
+    mkdir -p \
+      /etc/ansible/roles \
+      /usr/share/ansible/collections \
+      /usr/share/ansible/roles \
+      /usr/share/dci \
+    && \
     export ANSIBLE_ROLES_PATH=/usr/share/ansible/roles:/etc/ansible/roles && \
     export ANSIBLE_COLLECTIONS_PATHS=/usr/share/ansible/collections && \
+    pip3 install 'ansible<2.10' && \
+    ansible-galaxy collection install ansible.posix && \
     LANG=C ANSIBLE_DIR="/usr/share/dci/" /usr/src/dci-pipeline-*/container/install-from-source.sh && \
-    cd /usr/src/dci-ansible* && cp -r modules module_utils callback action_plugins filter_plugins /usr/share/dci/ && \
+    cd /usr/src/dci-ansible* && \
+    cp -r modules module_utils callback action_plugins filter_plugins /usr/share/dci/ && \
     adduser --home /var/lib/dci-openshift-agent dci-openshift-agent && \
     chown -R dci-openshift-agent: /var/lib/dci-openshift-agent && \
     sed -i 's/^#\s*\(%wheel\s\+ALL=(ALL)\s\+NOPASSWD:\s\+ALL\)/\1/' /etc/sudoers && \
     cp /usr/src/src_version.txt /usr/local/src && \
-    rm -rf /var/cache /var/log/dnf* /var/log/yum.* && \
-    rm -rf /usr/src/* ~/.cache && \
-
-    dnf clean all
 
 ARG _REPO_URL="https://raw.githubusercontent.com/containers/image_build/main/podman"
 # hadolint ignore=DL3020
