@@ -19,6 +19,7 @@ import unittest
 import mock
 
 from dcipipeline.main import (
+    build_cmdline,
     convert_value_type,
     dci,
     extract_build_tags,
@@ -30,6 +31,7 @@ from dcipipeline.main import (
     get_components,
     get_config,
     get_prev_jobdefs,
+    load_jobdef_file,
     overload_dicts,
     post_process_jobdef,
     pre_process_jobdef,
@@ -413,6 +415,100 @@ class TestMain(unittest.TestCase):
             result = dci(func)
         self.assertEqual(result, resp_200)
         self.assertEqual(func.call_count, 2)
+
+
+class TestBuildCmdline(unittest.TestCase):
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_default_vault(self, m):
+        jobdef = {}
+        cmd = build_cmdline(jobdef)
+        self.assertTrue(cmd.startswith("--vault-id /usr/bin/dci-vault-client"))
+
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_with_dci_vault_file(self, m):
+        jobdef = {"dci_vault_file": "/path/to/vault-password.txt"}
+        cmd = build_cmdline(jobdef)
+        self.assertIn("--vault-password-file /path/to/vault-password.txt", cmd)
+        self.assertNotIn("--vault-id", cmd)
+
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_with_dci_vault_file_tilde(self, m):
+        jobdef = {"dci_vault_file": "~/vault-password.txt"}
+        cmd = build_cmdline(jobdef)
+        self.assertIn("--vault-password-file", cmd)
+        self.assertNotIn("~", cmd)
+        self.assertNotIn("--vault-id", cmd)
+
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_with_tags(self, m):
+        jobdef = {"ansible_tags": ["tag1", "tag2"]}
+        cmd = build_cmdline(jobdef)
+        self.assertIn("--tags tag1,tag2", cmd)
+
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_with_skip_tags(self, m):
+        jobdef = {"ansible_skip_tags": ["skip1"]}
+        cmd = build_cmdline(jobdef)
+        self.assertIn("--skip-tags skip1", cmd)
+
+
+class TestLoadJobdefFileVault(unittest.TestCase):
+    @mock.patch("dcipipeline.main.load_credentials")
+    @mock.patch("dcipipeline.main.CLI.setup_vault_secrets", return_value=[])
+    def test_load_jobdef_file_with_dci_vault_file(self, m_vault, m_creds):
+        basedir = os.path.dirname(__file__)
+        fullpath = os.path.join(basedir, "comp.yml")
+        m_creds.return_value = {"DCI_API_SECRET": "fake-secret"}
+        load_jobdef_file(fullpath, basedir)
+        m_vault.assert_called_once()
+        call_kwargs = m_vault.call_args
+        self.assertNotIn("vault_password_files", call_kwargs.kwargs)
+        self.assertIn("vault_ids", call_kwargs.kwargs)
+
+    @mock.patch("dcipipeline.main.load_credentials")
+    @mock.patch("dcipipeline.main.CLI.setup_vault_secrets", return_value=[])
+    def test_load_jobdef_file_with_vault_password_file(self, m_vault, m_creds):
+        import tempfile
+
+        basedir = os.path.dirname(__file__)
+        m_creds.return_value = {"DCI_API_SECRET": "fake-secret"}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as vf:
+            vf.write("my-vault-password\n")
+            vault_file = vf.name
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yml", dir=basedir, delete=False
+            ) as tf:
+                tf.write(
+                    "---\n"
+                    "  - name: test-job\n"
+                    "    type: ocp\n"
+                    "    dci_vault_file: %s\n"
+                    "    ansible_playbook: agents/openshift-edge/agent.yml\n"
+                    "    topic: OCP-4.8\n"
+                    "    components:\n"
+                    "      - ocp\n" % vault_file
+                )
+                tmp_pipeline = tf.name
+            load_jobdef_file(tmp_pipeline, basedir)
+            m_vault.assert_called_once()
+            call_kwargs = m_vault.call_args
+            self.assertIn("vault_password_files", call_kwargs.kwargs)
+            self.assertEqual(call_kwargs.kwargs["vault_password_files"], [vault_file])
+            self.assertEqual(call_kwargs.kwargs["vault_ids"], [])
+        finally:
+            os.unlink(vault_file)
+            os.unlink(tmp_pipeline)
 
 
 class TestConvertValueType(unittest.TestCase):
