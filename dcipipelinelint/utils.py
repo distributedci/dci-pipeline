@@ -16,8 +16,11 @@
 """DRY utilities for dci-pipeline-lint."""
 
 import os
+import re
 
 import yaml
+
+VERSION_SEGMENT_PATTERN = re.compile(r"-\d+\.\d+")
 
 
 def load_pipeline_file(path):
@@ -48,6 +51,42 @@ def load_pipeline_file(path):
     if jobdefs == "" or jobdefs is None:
         return []
     return [jobdefs]
+
+
+def strip_version_segments(name):
+    """
+    Remove numeric version segments like -4.20 from a pipeline or job name.
+
+    Args:
+        name: Pipeline base name or job name
+
+    Returns:
+        Name with version segments removed
+    """
+    if not name:
+        return name
+    return VERSION_SEGMENT_PATTERN.sub("", name)
+
+
+def job_name_matches_filename(job_name, base_filename):
+    """
+    Check whether a job name is consistent with a pipeline base filename.
+
+    A match is allowed when names are equal or when only the filename includes
+    version segments (e.g. acm-hub vs acm-hub-4.20).
+
+    Args:
+        job_name: Job name from the pipeline definition
+        base_filename: Pipeline filename without -pipeline.yml suffix
+
+    Returns:
+        True if the names are considered consistent
+    """
+    if job_name == base_filename:
+        return True
+    if job_name == strip_version_segments(base_filename):
+        return True
+    return False
 
 
 def is_absolute_path(path):

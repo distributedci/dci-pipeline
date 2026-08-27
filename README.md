@@ -517,10 +517,10 @@ $ dci-pipeline-schedule -p my-pool ocp-vanilla workload
 The `dci-pipeline-lint` utility validates dci-pipeline job definition files
 for common issues and best practices. It performs checks such as filename
 format validation, stage name validation, topic presence, inventory path
-validation, correct usage of `dci_config_dirs` (plural, for
-dci-openshift-agent) vs `dci_config_dir` (singular, for
-dci-openshift-app-agent), and more. Run it on your pipeline files before
-committing:
+validation, job name consistency with the pipeline filename, correct usage
+of `dci_config_dirs` (plural, for dci-openshift-agent) vs `dci_config_dir`
+(singular, for dci-openshift-app-agent), and more. Run it on your pipeline
+files before committing:
 
 ```ShellSession
 $ dci-pipeline-lint pipeline.yml
@@ -528,6 +528,19 @@ $ dci-pipeline-lint --format json pipeline1.yml pipeline2.yml
 $ dci-pipeline-lint --format junit pipeline.yml > results.xml
 $ dci-pipeline-lint --severity E pipeline.yml  # Show only errors
 ```
+
+Notable checks:
+
+- **Inventory paths** (`absolute-inventory`): warns when
+  `ansible_inventory` uses an absolute filesystem path (`/...` or
+  `~/...`). Prefer relative paths resolved via `INVENTORIES_DIRS` (see
+  [Inventory Path Resolution](#inventory-path-resolution)). `@QUEUE` and
+  `@RESOURCE` placeholders are allowed.
+- **Job names** (`job-name-mismatch`): warns when the job `name` does not
+  match the pipeline filename. A version segment in the filename is
+  ignored for matching (for example, job `acm-hub` matches
+  `acm-hub-4.20-pipeline.yml`, and job `acm-hub-4.20` matches
+  `acm-hub-4.20-pipeline.yml`).
 
 The utility supports three output formats:
 - **rpmlint** (default): Human-readable rpmlint-style format
@@ -686,6 +699,9 @@ INVENTORIES_DIRS=~/shared-inventories:~/lab-specific-inventories
 ```
 
 **Pipeline files with relative inventory paths:**
+
+`dci-pipeline-lint` warns when `ansible_inventory` uses an absolute
+filesystem path. Use relative paths instead.
 
 For `openshift-agent` jobs, use the pattern `@QUEUE/@RESOURCE`:
 
