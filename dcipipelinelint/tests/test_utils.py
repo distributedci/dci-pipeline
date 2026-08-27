@@ -17,6 +17,7 @@ import pytest
 
 from dcipipelinelint.utils import (
     find_boolean_literals,
+    has_inventory_playbook,
     is_absolute_path,
     job_name_matches_filename,
     load_pipeline_file,
@@ -125,6 +126,24 @@ class TestJobNameMatchesFilename:
         assert job_name_matches_filename("acm-hub-4.20", "acm-hub-4.22") is False
 
 
+class TestHasInventoryPlaybook:
+    """Test has_inventory_playbook function."""
+
+    def test_with_inventory_playbook(self):
+        """Job with inventory_playbook returns True."""
+        jobdef = {"inventory_playbook": "~/config/inventory.yml"}
+        assert has_inventory_playbook(jobdef) is True
+
+    def test_without_inventory_playbook(self):
+        """Job without inventory_playbook returns False."""
+        jobdef = {"ansible_inventory": "inventories/agent.yml"}
+        assert has_inventory_playbook(jobdef) is False
+
+    def test_none_jobdef(self):
+        """None jobdef returns False."""
+        assert has_inventory_playbook(None) is False
+
+
 class TestIsAbsolutePath:
     """Test is_absolute_path function."""
 
@@ -139,7 +158,7 @@ class TestIsAbsolutePath:
     def test_absolute_path_starts_with_at_placeholder(self):
         """Test placeholder pattern starting with @."""
         assert is_absolute_path("@QUEUE/@RESOURCE") is True
-        assert is_absolute_path("@QUEUE/@RESOURCE-installed.yml") is True
+        assert is_absolute_path("@QUEUE/@RESOURCE-installed") is True
 
     def test_relative_path(self):
         """Test relative path."""

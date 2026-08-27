@@ -3,6 +3,8 @@
 # Used by check_inventory_mapping to validate inventory paths
 mappings:
   - playbook_pattern: "/usr/share/dci-openshift-agent/dci-openshift-agent.yml"
+    # Extension-less only: format (ini/yaml) is auto-detected from content
     inventory_pattern: "@QUEUE/@RESOURCE"
   - playbook_pattern: "/usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml"
-    inventory_pattern: "@QUEUE/@RESOURCE-installed.yml"
+    # Extension-less only: format (ini/yaml) is auto-detected from content
+    inventory_pattern: "@QUEUE/@RESOURCE-installed"
