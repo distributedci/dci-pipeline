@@ -16,6 +16,8 @@
 
 source ~/.config/dci-pipeline/config
 
+export DCI_PIPELINE_DATADIR
+
 
 MOUNTED_PATHS=(
   "/var/consoles"
@@ -35,7 +37,7 @@ for elt in "${MOUNTED_PATHS[@]}" "${CONTAINER_MOUNTED_PATHS[@]}"; do
   fi
 done
 
-podman run --rm --security-opt label=disable -e USER -e LC_ALL=C.UTF-8 -e DCI_QUEUE_JOBID \
+podman run --rm --security-opt label=disable -e DCI_PIPELINE_DATADIR -e HOME -e USER -e LC_ALL=C.UTF-8 -e DCI_QUEUE_JOBID \
       --userns=keep-id --group-add=wheel --pull=newer $mounts \
       "${DCI_PIPELINE_IMAGE:=quay.io/distributedci/dci-pipeline}":"${DCI_PIPELINE_TAG:=latest}" \
       dci-pipeline "$@"
