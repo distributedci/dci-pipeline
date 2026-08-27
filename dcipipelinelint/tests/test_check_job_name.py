@@ -25,6 +25,38 @@ class TestCheckJobName:
         results = check(jobdef, "test-job-pipeline.yml", 1)
         assert len(results) == 0
 
+    def test_versioned_filename_matches_job_name(self):
+        """Filename with version segment matches job name without version."""
+        jobdef = {"name": "acm-hub"}
+        results = check(jobdef, "acm-hub-4.20-pipeline.yml", 1)
+        assert len(results) == 0
+
+    def test_version_in_middle_of_filename(self):
+        """Version segment in the middle of the filename is ignored."""
+        jobdef = {"name": "ocp-spoke-ztp-gitops"}
+        results = check(jobdef, "ocp-4.22-spoke-ztp-gitops-pipeline.yml", 1)
+        assert len(results) == 0
+
+    def test_versioned_job_name_matches_versioned_filename(self):
+        """Job name with version matches versioned filename."""
+        jobdef = {"name": "acm-hub-4.20"}
+        results = check(jobdef, "acm-hub-4.20-pipeline.yml", 1)
+        assert len(results) == 0
+
+    def test_versioned_job_name_matches_unversioned_filename(self):
+        """Job name with version does not match filename without version."""
+        jobdef = {"name": "acm-hub-4.20"}
+        results = check(jobdef, "acm-hub-pipeline.yml", 1)
+        assert len(results) == 1
+        assert results[0].check_id == "job-name-mismatch"
+
+    def test_versioned_job_name_mismatched_version_fails(self):
+        """Job name and filename with different versions do not match."""
+        jobdef = {"name": "acm-hub-4.20"}
+        results = check(jobdef, "acm-hub-4.22-pipeline.yml", 1)
+        assert len(results) == 1
+        assert results[0].check_id == "job-name-mismatch"
+
     def test_mismatch_name(self):
         """Test that mismatched job name fails."""
         # This should fail because normalized names don't match

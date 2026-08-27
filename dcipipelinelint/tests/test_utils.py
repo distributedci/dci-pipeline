@@ -18,7 +18,9 @@ import pytest
 from dcipipelinelint.utils import (
     find_boolean_literals,
     is_absolute_path,
+    job_name_matches_filename,
     load_pipeline_file,
+    strip_version_segments,
 )
 
 
@@ -77,6 +79,50 @@ class TestLoadPipelineFile:
         """Test loading nonexistent file raises exception."""
         with pytest.raises(Exception):
             load_pipeline_file("/nonexistent/file.yml")
+
+
+class TestStripVersionSegments:
+    """Test strip_version_segments function."""
+
+    def test_strip_trailing_version(self):
+        """Test removing a trailing version segment."""
+        assert strip_version_segments("acm-hub-4.20") == "acm-hub"
+
+    def test_strip_middle_version(self):
+        """Test removing a version segment from the middle of a name."""
+        assert strip_version_segments("ocp-4.22-spoke-ztp-gitops") == "ocp-spoke-ztp-gitops"
+
+    def test_no_version_unchanged(self):
+        """Test name without version segment is unchanged."""
+        assert strip_version_segments("test-job") == "test-job"
+
+    def test_empty_name(self):
+        """Test empty name returns empty string."""
+        assert strip_version_segments("") == ""
+
+
+class TestJobNameMatchesFilename:
+    """Test job_name_matches_filename function."""
+
+    def test_exact_match(self):
+        """Exact names match."""
+        assert job_name_matches_filename("test-job", "test-job") is True
+
+    def test_unversioned_job_versioned_filename(self):
+        """Job without version matches versioned filename."""
+        assert job_name_matches_filename("acm-hub", "acm-hub-4.20") is True
+
+    def test_versioned_job_versioned_filename(self):
+        """Job with version matches same versioned filename."""
+        assert job_name_matches_filename("acm-hub-4.20", "acm-hub-4.20") is True
+
+    def test_versioned_job_unversioned_filename(self):
+        """Job with version does not match unversioned filename."""
+        assert job_name_matches_filename("acm-hub-4.20", "acm-hub") is False
+
+    def test_mismatched_versions(self):
+        """Different version segments do not match."""
+        assert job_name_matches_filename("acm-hub-4.20", "acm-hub-4.22") is False
 
 
 class TestIsAbsolutePath:

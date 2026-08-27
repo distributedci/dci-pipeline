@@ -20,16 +20,20 @@ class TestCheckInventory:
     """Test check_inventory check."""
 
     def test_absolute_path_slash(self):
-        """Test that absolute path starting with / passes."""
+        """Test that absolute path starting with / is warned."""
         jobdef = {"name": "test-job", "ansible_inventory": "/path/to/inventory.yml"}
         results = check(jobdef, "test-pipeline.yml", 1)
-        assert len(results) == 0
+        assert len(results) == 1
+        assert results[0].check_id == "absolute-inventory"
+        assert results[0].severity == "W"
 
     def test_absolute_path_tilde(self):
-        """Test that absolute path starting with ~ passes."""
+        """Test that absolute path starting with ~ is warned."""
         jobdef = {"name": "test-job", "ansible_inventory": "~/inventories/agent.yml"}
         results = check(jobdef, "test-pipeline.yml", 1)
-        assert len(results) == 0
+        assert len(results) == 1
+        assert results[0].check_id == "absolute-inventory"
+        assert results[0].severity == "W"
 
     def test_absolute_path_at_placeholder(self):
         """Test that placeholder pattern starting with @ passes."""
@@ -47,12 +51,19 @@ class TestCheckInventory:
         assert len(results) == 0
 
     def test_relative_path(self):
-        """Test that relative path fails."""
+        """Test that relative path passes."""
         jobdef = {"name": "test-job", "ansible_inventory": "inventories/agent.yml"}
         results = check(jobdef, "test-pipeline.yml", 1)
-        assert len(results) == 1
-        assert results[0].check_id == "relative-inventory"
-        assert results[0].severity == "W"
+        assert len(results) == 0
+
+    def test_relative_path_with_placeholder(self):
+        """Test that relative path with placeholder passes."""
+        jobdef = {
+            "name": "test-job",
+            "ansible_inventory": "inventories/@QUEUE/@RESOURCE",
+        }
+        results = check(jobdef, "test-pipeline.yml", 1)
+        assert len(results) == 0
 
     def test_missing_inventory(self):
         """Test that missing inventory passes."""
