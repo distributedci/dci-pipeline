@@ -45,7 +45,7 @@ class TestCheckInventory:
         """Test that placeholder pattern with suffix passes."""
         jobdef = {
             "name": "test-job",
-            "ansible_inventory": "@QUEUE/@RESOURCE-installed.yml",
+            "ansible_inventory": "@QUEUE/@RESOURCE-installed",
         }
         results = check(jobdef, "test-pipeline.yml", 1)
         assert len(results) == 0
@@ -63,6 +63,17 @@ class TestCheckInventory:
             "ansible_inventory": "inventories/@QUEUE/@RESOURCE",
         }
         results = check(jobdef, "test-pipeline.yml", 1)
+        assert len(results) == 0
+
+    def test_skip_with_inventory_playbook(self):
+        """Absolute inventory path is allowed when inventory_playbook is set."""
+        jobdef = {
+            "name": "acm-hub",
+            "ansible_inventory": "~/inventories/@QUEUE-@RESOURCE-hosts",
+            "inventory_playbook": "~/dci/hardware-validation-config/files/abi-inventory.yml",
+            "ansible_playbook": "/usr/share/dci-openshift-agent/dci-openshift-agent.yml",
+        }
+        results = check(jobdef, "acm-hub-4.20-pipeline.yml", 1)
         assert len(results) == 0
 
     def test_missing_inventory(self):

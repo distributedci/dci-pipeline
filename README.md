@@ -535,7 +535,13 @@ Notable checks:
   `ansible_inventory` uses an absolute filesystem path (`/...` or
   `~/...`). Prefer relative paths resolved via `INVENTORIES_DIRS` (see
   [Inventory Path Resolution](#inventory-path-resolution)). `@QUEUE` and
-  `@RESOURCE` placeholders are allowed.
+  `@RESOURCE` placeholders are allowed. Skipped when `inventory_playbook`
+  is set.
+- **Inventory mapping** (`inventory-mapping-mismatch`): warns when
+  `ansible_inventory` does not match the expected pattern for the
+  playbook (`@QUEUE/@RESOURCE` for openshift-agent,
+  `@QUEUE/@RESOURCE-installed` for openshift-app-agent). Skipped when
+  `inventory_playbook` is set.
 - **Job names** (`job-name-mismatch`): warns when the job `name` does not
   match the pipeline filename. A version segment in the filename is
   ignored for matching (for example, job `acm-hub` matches
@@ -715,13 +721,13 @@ For `openshift-agent` jobs, use the pattern `@QUEUE/@RESOURCE`:
       - ocp
 ```
 
-For `openshift-app-agent` jobs, use the pattern `@QUEUE/@RESOURCE-post.yml`:
+For `openshift-app-agent` jobs, use the pattern `@QUEUE/@RESOURCE-installed`:
 
 ```YAML
   - name: example-cnf
     stage: cnf
     ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
-    ansible_inventory: inventories/@QUEUE/@RESOURCE-post.yml
+    ansible_inventory: inventories/@QUEUE/@RESOURCE-installed
     use_previous_topic: true
     components:
       - nfv-example-cnf-index

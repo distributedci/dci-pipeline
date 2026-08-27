@@ -89,6 +89,19 @@ def job_name_matches_filename(job_name, base_filename):
     return False
 
 
+def has_inventory_playbook(jobdef):
+    """
+    Return True when the job generates its inventory dynamically.
+
+    Args:
+        jobdef: Job definition dictionary
+
+    Returns:
+        True if inventory_playbook is defined
+    """
+    return bool(jobdef and jobdef.get("inventory_playbook"))
+
+
 def is_absolute_path(path):
     """
     Check if a path is absolute.

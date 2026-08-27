@@ -16,7 +16,7 @@
 """Warn when ansible_inventory uses absolute filesystem paths."""
 
 from dcipipelinelint.result import LintResult
-from dcipipelinelint.utils import is_absolute_path
+from dcipipelinelint.utils import has_inventory_playbook, is_absolute_path
 
 
 def check(jobdef, filename, line_number):
@@ -38,6 +38,9 @@ def check(jobdef, filename, line_number):
 
     # Skip if no jobdef (file-level check)
     if jobdef is None:
+        return results
+
+    if has_inventory_playbook(jobdef):
         return results
 
     inventory = jobdef.get("ansible_inventory")
