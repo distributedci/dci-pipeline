@@ -35,9 +35,17 @@ for elt in "${MOUNTED_PATHS[@]}" "${CONTAINER_MOUNTED_PATHS[@]}"; do
   fi
 done
 
-podman run --rm --security-opt label=disable -e USER -e LC_ALL=C.UTF-8 -e DCI_QUEUE_JOBID \
-      --userns=keep-id --group-add=wheel --pull=newer $mounts \
+# The image user dci-openshift-agent is UID 1000. On jumphosts the host user
+# is often also UID 1000, so --userns=keep-id reuses that passwd entry and
+# OpenSSH looks for keys under /var/lib/dci-openshift-agent/.ssh, not $HOME.
+if [[ -d "${HOME}/.ssh" ]]; then
+    mounts="$mounts -v ${HOME}/.ssh:/var/lib/dci-openshift-agent/.ssh"
+fi
+
+podman run --rm --security-opt label=disable -e USER -e HOME -e LC_ALL=C.UTF-8 -e DCI_QUEUE_JOBID \
+      --userns=keep-id --group-add=wheel --pull=newer --workdir="${HOME}" $mounts \
       "${DCI_PIPELINE_IMAGE:=quay.io/distributedci/dci-pipeline}":"${DCI_PIPELINE_TAG:=latest}" \
       dci-pipeline "$@"
 
 # dci-pipeline-podman ends here
+
