@@ -12,7 +12,7 @@ To achieve this, the recommended layout on the jumphost machine (the host
 running dci-pipeline) is to store the pipelines repository and any other
 git repositories under `~/dci`:
 
-```
+```text
 ~/dci/lab-config/
 ├── pipelines/         # git repo holding the *-pipeline.yml files
 ├── inventories/       # inventory files, stored independently
