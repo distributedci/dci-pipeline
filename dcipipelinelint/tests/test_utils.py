@@ -91,7 +91,10 @@ class TestStripVersionSegments:
 
     def test_strip_middle_version(self):
         """Test removing a version segment from the middle of a name."""
-        assert strip_version_segments("ocp-4.22-spoke-ztp-gitops") == "ocp-spoke-ztp-gitops"
+        assert (
+            strip_version_segments("ocp-4.22-spoke-ztp-gitops")
+            == "ocp-spoke-ztp-gitops"
+        )
 
     def test_no_version_unchanged(self):
         """Test name without version segment is unchanged."""
