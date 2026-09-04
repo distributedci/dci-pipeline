@@ -99,7 +99,14 @@ def has_inventory_playbook(jobdef):
     Returns:
         True if inventory_playbook is defined
     """
-    return bool(jobdef and jobdef.get("inventory_playbook"))
+    if not jobdef:
+        return False
+    value = jobdef.get("inventory_playbook")
+    # load_pipeline_file uses yaml.BaseLoader, so YAML booleans arrive as the
+    # strings "false"/"no"; treat those false-like values as absent.
+    if isinstance(value, str) and value.strip().lower() in ("false", "no", ""):
+        return False
+    return bool(value)
 
 
 def is_absolute_path(path):

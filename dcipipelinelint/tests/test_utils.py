@@ -146,6 +146,12 @@ class TestHasInventoryPlaybook:
         """None jobdef returns False."""
         assert has_inventory_playbook(None) is False
 
+    def test_false_like_inventory_playbook(self):
+        """YAML false-like values (BaseLoader strings) are treated as absent."""
+        for value in ("false", "False", "no", ""):
+            jobdef = {"inventory_playbook": value}
+            assert has_inventory_playbook(jobdef) is False
+
 
 class TestIsAbsolutePath:
     """Test is_absolute_path function."""
