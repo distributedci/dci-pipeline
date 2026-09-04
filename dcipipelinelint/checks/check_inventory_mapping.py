@@ -19,6 +19,7 @@ import fnmatch
 import os
 
 from dcipipelinelint.result import LintResult
+from dcipipelinelint.utils import has_inventory_playbook
 
 # Cache for loaded mappings
 _mappings_cache = None
@@ -62,6 +63,9 @@ def check(jobdef, filename, line_number):
 
     # Skip if no jobdef (file-level check)
     if jobdef is None:
+        return results
+
+    if has_inventory_playbook(jobdef):
         return results
 
     playbook = jobdef.get("ansible_playbook")

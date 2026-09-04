@@ -18,6 +18,7 @@
 import os
 
 from dcipipelinelint.result import LintResult
+from dcipipelinelint.utils import job_name_matches_filename
 
 
 def check(jobdef, filename, line_number):
@@ -49,8 +50,8 @@ def check(jobdef, filename, line_number):
     elif base_filename.endswith(".yml"):
         base_filename = base_filename[:-4]  # Remove ".yml"
 
-    # Check if job name matches filename exactly
-    if job_name != base_filename:
+    # Check if job name matches filename, with or without version segments
+    if not job_name_matches_filename(job_name, base_filename):
         results.append(
             LintResult(
                 filename=filename,

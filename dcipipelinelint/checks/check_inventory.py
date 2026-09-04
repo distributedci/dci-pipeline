@@ -13,15 +13,18 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-"""Check for absolute inventory paths."""
+"""Warn when ansible_inventory uses absolute filesystem paths."""
 
 from dcipipelinelint.result import LintResult
-from dcipipelinelint.utils import is_absolute_path
+from dcipipelinelint.utils import has_inventory_playbook, is_absolute_path
 
 
 def check(jobdef, filename, line_number):
     """
-    Check if ansible_inventory uses absolute paths.
+    Check if ansible_inventory uses relative paths.
+
+    Warns when an absolute filesystem path is used, since relative paths
+    are preferred and resolved via INVENTORIES_DIRS.
 
     Args:
         jobdef: Job definition dictionary
@@ -37,15 +40,18 @@ def check(jobdef, filename, line_number):
     if jobdef is None:
         return results
 
+    if has_inventory_playbook(jobdef):
+        return results
+
     inventory = jobdef.get("ansible_inventory")
-    if inventory and not is_absolute_path(inventory):
+    if inventory and is_absolute_path(inventory) and not inventory.startswith("@"):
         results.append(
             LintResult(
                 filename=filename,
                 line=line_number,
                 severity="W",
-                check_id="relative-inventory",
-                message=f"Inventory path '{inventory}' should be absolute",
+                check_id="absolute-inventory",
+                message=f"Inventory path '{inventory}' should be relative",
                 job_name=jobdef.get("name"),
             )
         )
