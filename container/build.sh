@@ -56,7 +56,6 @@ for dir in dci-ansible \
     ansible-collection-community-crypto \
     ansible-collection-community-general \
     ansible-collection-community-libvirt \
-    ansible-collection-containers-podman \
     ansible-collection-redhatci-ocp \
     ansible-role-dci-podman \
     ansible-role-dci-sync-registry \

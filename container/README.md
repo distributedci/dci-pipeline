@@ -11,7 +11,6 @@ Extract all these git repositories in the same directory:
 * ansible-collection-community-general
 * ansible-collection-community-libvirt
 * ansible-collection-containers-podman
-* ansible-role-dci-podman
 * ansible-role-dci-sync-registry
 * dci-ansible
 * dci-openshift-agent
