@@ -46,14 +46,21 @@ def register_command(subparsers):
 
 def execute_command(args):
     if not lib.check_pool(args.top_dir, args.pool):
+        log.error("Pool %s does not exist" % args.pool)
         return 1
+
+    log.info(
+        "Removing resource %s from pool %s (reason: %s)"
+        % (args.name, args.pool, args.reason)
+    )
 
     # if we are trying to remove a resource that does not exist, but not forcing the
     # removal of the resource, then exit
     path = os.path.join(args.top_dir, "pool", args.pool, args.name)
     if not (os.path.exists(path) or args.force):
         msg = "Trying to remove resource %s that does not exist." % (args.name,)
-        sys.stderr.write(msg)
+        log.error(msg)
+        print(msg, file=sys.stderr)
         return 1
 
     # this step is common when forcing and not forcing the removal
@@ -79,6 +86,7 @@ def execute_command(args):
         # now, just check if the resource is already blocked, to remove it from
         # the blocked resources (reason directory), then finish the execution
         if os.path.exists(path):
+            log.debug("Removing reason file %s" % path)
             os.unlink(path)
         return 0
 
@@ -94,6 +102,7 @@ def execute_command(args):
             universal_newlines=True,
         ).strip("\n")
 
+    log.debug("Writing reason file %s" % path)
     with open(path, "w") as f:
         json.dump(
             {

@@ -36,7 +36,10 @@ def register_command(subparsers):
 
 def execute_command(args):
     if not lib.check_pool(args.top_dir, args.pool):
+        log.error("Pool %s does not exist" % args.pool)
         return 1
+
+    log.info("Adding resource %s to pool %s" % (args.name, args.pool))
 
     f = os.path.join(args.top_dir, "pool", args.pool, args.name)
     if not os.path.exists(f):
@@ -60,6 +63,11 @@ def execute_command(args):
         if not os.path.islink(link):
             log.debug("Creating symlink %s" % link)
             os.symlink(f, link)
+    else:
+        log.debug(
+            "Resource %s is referenced by a queued command, "
+            "not making it available" % args.name
+        )
 
     reason = os.path.join(args.top_dir, "reason", args.pool, args.name)
     if os.path.exists(reason):
