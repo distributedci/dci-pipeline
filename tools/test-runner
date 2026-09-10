@@ -580,6 +580,11 @@ done
 
 cat ansible.cfg
 
+# clone eco-gotests if eco-goinfra PR is present but eco-gotests is not
+if [ -d eco-goinfra ] && [ ! -d eco-gotests ]; then
+    git clone https://github.com/rh-ecosystem-edge/eco-gotests
+fi
+
 # inject certification variables and topic
 for NAME in $CNF_NAMES; do
     # Lookup a topic for CNF jobs if there is no OCP job.
@@ -647,6 +652,22 @@ for NAME in $CNF_NAMES; do
     fi
     if [ -d eco-gotests ]; then
         OCP_APP_OPT="$OCP_APP_OPT $NAME:ansible_extravars=eco_gotests_path:$PWD/eco-gotests"
+        # inject dependencies from other github PRs (already cloned locally).
+        # eco-gotests is vendored and its image is built by copying the tree
+        # into the container, so point go.mod at the local checkout and
+        # regenerate vendor/ (and vendor/modules.txt) to stay consistent.
+        for d in $(sed -n -e 's@\s*github.com/[^/]*/\([^/ ]*\).*@\1@p' eco-gotests/go.mod); do
+            if [ -d "$d" ]; then
+                ORIGPKG=$(jq -r .base.repo.html_url $d-*.json|sed -e 's@https://@@')
+                if [ -n "$ORIGPKG" ]; then
+                    ( cd eco-gotests \
+                      && go mod edit -replace "$ORIGPKG=../$d" \
+                      && go mod tidy \
+                      && go mod vendor )
+                    head -15 eco-gotests/go.mod
+                fi
+            fi
+        done
     fi
 done
 
