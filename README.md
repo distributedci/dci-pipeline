@@ -51,9 +51,9 @@ Here is a pipeline example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -69,9 +69,9 @@ Example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -157,7 +157,7 @@ If you need to create the inventory dynamically, you can use the `inventory_play
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
     inventory_playbook: ~/config/inventory.yml
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
@@ -199,9 +199,9 @@ For example, a first job will export a `kubeconfig` file:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -238,10 +238,10 @@ a corresponding `outputs` like this:
 
 ```YAML
 - name: example-cnf
-  stage: cnf
-  prev_stages: [ocp]
+  stage: workload
+  prev_stages: [install]
   ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
-  dci_credentials: /etc/dci-openshift-app-agent/dci_credentials.yml
+  dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
   topic: OCP-4.14
   components: []
   inputs:
@@ -271,9 +271,9 @@ an example on how to use it:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -289,9 +289,9 @@ continue testing the next layers in the pipeline. Example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -311,9 +311,9 @@ If you want to pass environment variables to the agent. Example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     ansible_extravars:
       answer: 42
     ansible_envvars:
@@ -334,9 +334,9 @@ by an actual path of a temporary directory. Example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     ansible_extravars:
       answer: 42
     ansible_envvars:
@@ -375,9 +375,9 @@ You can specify extra Ansible variable files using the
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/cluster.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     ansible_extravars_files:
       - agents/openshift-vanilla/vars.yml
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
@@ -396,9 +396,9 @@ plaintext file containing the vault password:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_vault_file: ~/.config/dci-pipeline/vault-password.txt
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
@@ -457,9 +457,9 @@ configuration of the job. Example:
 
 ```YAML
   - name: workload
-    stage: app
+    stage: workload
     ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
-    ansible_inventory: ~/inventories/app.yml
+    ansible_inventory: "@QUEUE/@RESOURCE-installed"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     use_previous_topic: true
 ```
@@ -517,10 +517,10 @@ $ dci-pipeline-schedule -p my-pool ocp-vanilla workload
 The `dci-pipeline-lint` utility validates dci-pipeline job definition files
 for common issues and best practices. It performs checks such as filename
 format validation, stage name validation, topic presence, inventory path
-validation, correct usage of `dci_config_dirs` (plural, for
-dci-openshift-agent) vs `dci_config_dir` (singular, for
-dci-openshift-app-agent), and more. Run it on your pipeline files before
-committing:
+validation, job name consistency with the pipeline filename, correct usage
+of `dci_config_dirs` (plural, for dci-openshift-agent) vs `dci_config_dir`
+(singular, for dci-openshift-app-agent), and more. Run it on your pipeline
+files before committing:
 
 ```ShellSession
 $ dci-pipeline-lint pipeline.yml
@@ -529,12 +529,34 @@ $ dci-pipeline-lint --format junit pipeline.yml > results.xml
 $ dci-pipeline-lint --severity E pipeline.yml  # Show only errors
 ```
 
+Notable checks:
+
+- **Inventory paths** (`absolute-inventory`): warns when
+  `ansible_inventory` uses an absolute filesystem path (`/...` or
+  `~/...`). Prefer relative paths resolved via `INVENTORIES_DIRS` (see
+  [Inventory Path Resolution](#inventory-path-resolution)). `@QUEUE` and
+  `@RESOURCE` placeholders are allowed. Skipped when `inventory_playbook`
+  is set.
+- **Inventory mapping** (`inventory-mapping-mismatch`): warns when
+  `ansible_inventory` does not match the expected pattern for the
+  playbook (`@QUEUE/@RESOURCE` for openshift-agent,
+  `@QUEUE/@RESOURCE-installed` for openshift-app-agent). Skipped when
+  `inventory_playbook` is set.
+- **Job names** (`job-name-mismatch`): warns when the job `name` does not
+  match the pipeline filename. A version segment in the filename is
+  ignored for matching (for example, job `acm-hub` matches
+  `acm-hub-4.20-pipeline.yml`, and job `acm-hub-4.20` matches
+  `acm-hub-4.20-pipeline.yml`).
+
 The utility supports three output formats:
 - **rpmlint** (default): Human-readable rpmlint-style format
 - **json**: Structured JSON format with summary statistics
 - **junit**: JUnit XML format for CI/CD integration
 
 Exit code is 0 if no errors are found, 1 if errors are present.
+
+See [PIPELINE_BEST_PRACTICES.md](PIPELINE_BEST_PRACTICES.md) for the
+full list of checks, their severities, and how to fix each finding.
 
 ## dci-pipeline-check
 
@@ -663,9 +685,9 @@ change. This will direct `dci-pipeline-check` to test in a specific way:
 
 ```YAML
   - name: workload
-    stage: app
+    stage: workload
     ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
-    ansible_inventory: ~/inventories/@QUEUE/@RESOURCE.yml
+    ansible_inventory: "@QUEUE/@RESOURCE-installed"
     configuration: "@QUEUE"
     ansible_extravars:
       custom_config: /path/to/config/for/@QUEUE/@RESOURCE-config.yml
@@ -687,25 +709,28 @@ INVENTORIES_DIRS=~/shared-inventories:~/lab-specific-inventories
 
 **Pipeline files with relative inventory paths:**
 
+`dci-pipeline-lint` warns when `ansible_inventory` uses an absolute
+filesystem path. Use relative paths instead.
+
 For `openshift-agent` jobs, use the pattern `@QUEUE/@RESOURCE`:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: inventories/@QUEUE/@RESOURCE
+    ansible_inventory: "@QUEUE/@RESOURCE"
     topic: OCP-4.18
     components:
       - ocp
 ```
 
-For `openshift-app-agent` jobs, use the pattern `@QUEUE/@RESOURCE-post.yml`:
+For `openshift-app-agent` jobs, use the pattern `@QUEUE/@RESOURCE-installed`:
 
 ```YAML
   - name: example-cnf
-    stage: cnf
+    stage: workload
     ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
-    ansible_inventory: inventories/@QUEUE/@RESOURCE-post.yml
+    ansible_inventory: "@QUEUE/@RESOURCE-installed"
     use_previous_topic: true
     components:
       - nfv-example-cnf-index
@@ -715,7 +740,7 @@ For `openshift-app-agent` jobs, use the pattern `@QUEUE/@RESOURCE-post.yml`:
 
 - **Absolute paths** (starting with `/`): Used as-is, no resolution attempted (backward compatible)
 - **Relative paths**: Resolved by prepending the first directory from `INVENTORIES_DIRS`
-  - Example: `inventories/@QUEUE/@RESOURCE` → `<INVENTORIES_DIRS>/inventories/@QUEUE/@RESOURCE`
+  - Example: `@QUEUE/@RESOURCE` → `<INVENTORIES_DIRS>/@QUEUE/@RESOURCE`
   - After resolution, `@QUEUE` and `@RESOURCE` are substituted as usual
 
 This allows sharing pipeline files across git repositories while keeping

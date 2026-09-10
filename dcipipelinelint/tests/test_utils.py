@@ -17,8 +17,11 @@ import pytest
 
 from dcipipelinelint.utils import (
     find_boolean_literals,
+    has_inventory_playbook,
     is_absolute_path,
+    job_name_matches_filename,
     load_pipeline_file,
+    strip_version_segments,
 )
 
 
@@ -79,6 +82,77 @@ class TestLoadPipelineFile:
             load_pipeline_file("/nonexistent/file.yml")
 
 
+class TestStripVersionSegments:
+    """Test strip_version_segments function."""
+
+    def test_strip_trailing_version(self):
+        """Test removing a trailing version segment."""
+        assert strip_version_segments("acm-hub-4.20") == "acm-hub"
+
+    def test_strip_middle_version(self):
+        """Test removing a version segment from the middle of a name."""
+        assert (
+            strip_version_segments("ocp-4.22-spoke-ztp-gitops")
+            == "ocp-spoke-ztp-gitops"
+        )
+
+    def test_no_version_unchanged(self):
+        """Test name without version segment is unchanged."""
+        assert strip_version_segments("test-job") == "test-job"
+
+    def test_empty_name(self):
+        """Test empty name returns empty string."""
+        assert strip_version_segments("") == ""
+
+
+class TestJobNameMatchesFilename:
+    """Test job_name_matches_filename function."""
+
+    def test_exact_match(self):
+        """Exact names match."""
+        assert job_name_matches_filename("test-job", "test-job") is True
+
+    def test_unversioned_job_versioned_filename(self):
+        """Job without version matches versioned filename."""
+        assert job_name_matches_filename("acm-hub", "acm-hub-4.20") is True
+
+    def test_versioned_job_versioned_filename(self):
+        """Job with version matches same versioned filename."""
+        assert job_name_matches_filename("acm-hub-4.20", "acm-hub-4.20") is True
+
+    def test_versioned_job_unversioned_filename(self):
+        """Job with version does not match unversioned filename."""
+        assert job_name_matches_filename("acm-hub-4.20", "acm-hub") is False
+
+    def test_mismatched_versions(self):
+        """Different version segments do not match."""
+        assert job_name_matches_filename("acm-hub-4.20", "acm-hub-4.22") is False
+
+
+class TestHasInventoryPlaybook:
+    """Test has_inventory_playbook function."""
+
+    def test_with_inventory_playbook(self):
+        """Job with inventory_playbook returns True."""
+        jobdef = {"inventory_playbook": "~/config/inventory.yml"}
+        assert has_inventory_playbook(jobdef) is True
+
+    def test_without_inventory_playbook(self):
+        """Job without inventory_playbook returns False."""
+        jobdef = {"ansible_inventory": "inventories/agent.yml"}
+        assert has_inventory_playbook(jobdef) is False
+
+    def test_none_jobdef(self):
+        """None jobdef returns False."""
+        assert has_inventory_playbook(None) is False
+
+    def test_false_like_inventory_playbook(self):
+        """YAML false-like values (BaseLoader strings) are treated as absent."""
+        for value in ("false", "False", "no", ""):
+            jobdef = {"inventory_playbook": value}
+            assert has_inventory_playbook(jobdef) is False
+
+
 class TestIsAbsolutePath:
     """Test is_absolute_path function."""
 
@@ -93,7 +167,7 @@ class TestIsAbsolutePath:
     def test_absolute_path_starts_with_at_placeholder(self):
         """Test placeholder pattern starting with @."""
         assert is_absolute_path("@QUEUE/@RESOURCE") is True
-        assert is_absolute_path("@QUEUE/@RESOURCE-installed.yml") is True
+        assert is_absolute_path("@QUEUE/@RESOURCE-installed") is True
 
     def test_relative_path(self):
         """Test relative path."""

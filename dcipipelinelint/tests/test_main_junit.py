@@ -68,8 +68,8 @@ class TestJUnitFormat:
                 filename="test.yml",
                 line=5,
                 severity="W",
-                check_id="relative-inventory",
-                message="Relative inventory path",
+                check_id="absolute-inventory",
+                message="Absolute inventory path",
             ),
         ]
         xml_output = format_results_junit(results)
@@ -82,7 +82,7 @@ class TestJUnitFormat:
         assert testcase is not None
         failure = testcase.find("failure")
         assert failure is not None
-        assert failure.get("type") == "relative-inventory"
+        assert failure.get("type") == "absolute-inventory"
 
     def test_junit_format_with_info(self):
         """Test JUnit format with info results."""
