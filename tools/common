@@ -18,7 +18,9 @@ if [ -z "$PIPELINES_DIRS" ]; then
     PIPELINES_DIRS="$PIPELINES_DIR"
 fi
 
-# Find pipeline file in multiple directories (colon-separated)
+# Find pipeline file in multiple directories (colon-separated).
+# Echoes the path when found; otherwise no output. Callers check
+# emptiness / readability after command substitution.
 find_pipeline_file() {
     local pipeline_name="$1"
     local pipeline_file="${pipeline_name}-pipeline.yml"
@@ -36,16 +38,17 @@ find_pipeline_file() {
         local full_path="$dir/$pipeline_file"
         if [ -r "$full_path" ]; then
             echo "$full_path"
-            return 0
+            return
         fi
     done
-
-    return 1
 }
 
-# Find the first PIPELINES_DIRS entry whose git repo is checked out in the given directory
+# Find the first PIPELINES_DIRS entry whose git repo is checked out in the given directory.
+# Falls back to the first PIPELINES_DIRS entry when none is checked out (e.g. PRs that
+# are not pipelines repos). Always echoes a path for callers to use.
 find_checked_out_pipelines_dir() {
     local base_dir="$1"
+    local result=
     IFS=':' read -ra DIRS <<< "$PIPELINES_DIRS"
     for dir in "${DIRS[@]}"; do
         dir="${dir/#\~/$HOME}"
@@ -54,12 +57,11 @@ find_checked_out_pipelines_dir() {
             repo=$(cd "$dir" && basename "$(git config --local remote.origin.url 2>/dev/null)" .git)
             if [ -n "$repo" ] && [ "$repo" != .git ] && [ -d "$base_dir/$repo" ]; then
                 echo "$dir"
-                return 0
+                return
             fi
         fi
     done
     echo "${DIRS[0]/#\~/$HOME}"
-    return 1
 }
 
 # Resolve inventory path (absolute paths used as-is, relative paths
@@ -71,7 +73,7 @@ resolve_inventory_path() {
     # If absolute path (starts with /), use as-is (backward compatible)
     if [[ "$inventory_path" = /* ]]; then
         echo "$inventory_path"
-        return 0
+        return
     fi
 
     # Relative path: resolve using INVENTORIES_DIRS directories
@@ -85,14 +87,13 @@ resolve_inventory_path() {
             # Check if the full path exists
             if [ -r "$dir/$inventory_path" ]; then
                 echo "$dir/$inventory_path"
-                return 0
+                return
             fi
         done
     fi
 
     # Return original if INVENTORIES_DIRS not set or path not found
     echo "$inventory_path"
-    return 0
 }
 
 # Resolve inventory paths after @QUEUE/@RESOURCE
