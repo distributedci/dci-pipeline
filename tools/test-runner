@@ -148,9 +148,7 @@ get_project() {
         top_level_dir=$(cd "$dir"; git rev-parse --show-toplevel 2> /dev/null)
         ALL_DIRS["$project"]="$top_level_dir"
         echo "$project"
-        return 0
     fi
-    return 1
 }
 
 extract_dirs() {
