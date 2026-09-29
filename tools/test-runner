@@ -45,6 +45,11 @@ PROJECTS=(
 PROJECTS_REGEX=$(printf '%s|' "${PROJECTS[@]}")
 PROJECTS_REGEX=${PROJECTS_REGEX%|}
 
+# ansible-core stable version and its minimal python supported version
+# https://docs.ansible.com/projects/ansible/latest/reference_appendices/release_and_maintenance.html#ansible-core-support-matrix
+ANSIBLE_CORE_STABLE_VER="2.21.0"
+MIN_PY_VER=3.12
+
 error() {
     ERROR="$1"
     RET=2
@@ -458,8 +463,21 @@ if [ -z "$SUFFIX" ]; then
         export ANSIBLE_COLLECTIONS_PATHS=$LOCAL_COLLECTIONS:/usr/share/ansible/collections
         cd $d
         rm -f *.tar.gz
+
+        # Set the patching version for the collection to install
+        z=$(TZ=UTC0 git show $(git rev-parse --short HEAD) --no-patch --format=%cd --date=format-local:'%s')
+        sed -i -r "s/^(version: .*)\.0$/\1.${z}/" galaxy.yml
+
         ansible-galaxy collection build
-        ansible-galaxy collection install *.tar.gz -p $LOCAL_COLLECTIONS
+        if type -p uv &>/dev/null; then
+            if ! uv tool run --python ${MIN_PY_VER} --from "ansible-core==${ANSIBLE_CORE_STABLE_VER}" \
+                ansible-galaxy collection install *.tar.gz -p "${LOCAL_COLLECTIONS}"; then
+                error "Unable to install collection dependencies with uv"
+            fi
+        else
+            echo "WARNING: uv not available; fallback into host's ansible-galaxy" >&2
+            ansible-galaxy collection install *.tar.gz -p ${LOCAL_COLLECTIONS}
+        fi
         cd -
     done
 fi
