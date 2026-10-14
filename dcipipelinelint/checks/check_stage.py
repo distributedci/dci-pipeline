@@ -60,4 +60,22 @@ def check(jobdef, filename, line_number):
             )
         )
 
+    prev_stages = jobdef.get("prev_stages")
+    if prev_stages:
+        # prev_stages may be a single string or a list of strings
+        if not isinstance(prev_stages, list):
+            prev_stages = [prev_stages]
+        for prev_stage in prev_stages:
+            if prev_stage not in VALID_STAGES:
+                results.append(
+                    LintResult(
+                        filename=filename,
+                        line=line_number,
+                        severity="E",
+                        check_id="invalid-prev-stage",
+                        message=f"prev_stages entry '{prev_stage}' is not in predefined list: {', '.join(VALID_STAGES)}",
+                        job_name=jobdef.get("name"),
+                    )
+                )
+
     return results
