@@ -829,6 +829,15 @@ $ dci-queue schedule -p 1 8nodes dci-pipeline openshift-vanilla:ansible_inventor
 The `@RESOURCE` is mandatory in the command line to be executed and it
 is replaced by the resource name at execution time.
 
+To remove the selected resource when a scheduled job starts, use `-r`:
+
+```ShellSession
+$ dci-queue schedule -r 8nodes echo @RESOURCE
+```
+
+This records the reason `Removed by scheduled job`. Use `--force-remove-resource`
+to remove the resource fully.
+
 Schedule a dci-pipeline command on the `8nodes` pool waiting for the
 command to complete to have its exit code and having all the log on the
 console:

@@ -24,7 +24,7 @@ import uuid
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from dciqueue import lib, main, run_cmd
+from dciqueue import lib, main, run_cmd, schedule_cmd
 
 
 class TestQueue(unittest.TestCase):
@@ -279,16 +279,142 @@ class TestQueue(unittest.TestCase):
         for seq in ("1", "2"):
             self.file_exists("queue", "8nodes", seq)
 
+    @patch.dict(os.environ, {"TMUX": ""})
     def test_schedule_remove(self):
         self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
         self.assertEqual(
             main.main(["dci-queue", "add-resource", "8nodes", "cluster4"]), 0
         )
         self.assertEqual(
-            main.main(["dci-queue", "schedule", "-r", "8nodes", "echo", "@RESOURCE"]), 0
+            main.main(["dci-queue", "schedule", "-r", "8nodes", "echo", "@RESOURCE"]),
+            0,
         )
         self.assertEqual(main.main(["dci-queue", "run", "8nodes"]), 0)
         self.doesnt_exist("pool", "8nodes", "cluster4")
+        self.doesnt_exist("available", "8nodes", "cluster4")
+        with open(os.path.join(self.queue_dir, "reason", "8nodes", "cluster4")) as fd:
+            self.assertEqual(
+                json.load(fd)["reason"], schedule_cmd.DEFAULT_REMOVE_REASON
+            )
+
+    def test_schedule_force_remove(self):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "8nodes", "cluster4"]), 0
+        )
+        self.assertEqual(
+            main.main(
+                [
+                    "dci-queue",
+                    "schedule",
+                    "--force-remove-resource",
+                    "8nodes",
+                    "echo",
+                    "@RESOURCE",
+                ]
+            ),
+            0,
+        )
+        self.assertEqual(main.main(["dci-queue", "run", "8nodes"]), 0)
+        for key in ("pool", "available", "reason"):
+            self.doesnt_exist(key, "8nodes", "cluster4")
+
+    def test_remove_resource_requires_non_empty_reason(self):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "8nodes", "cluster4"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "8nodes", "cluster4", "  "]),
+            1,
+        )
+        self.file_exists("pool", "8nodes", "cluster4")
+        self.doesnt_exist("reason", "8nodes", "cluster4")
+
+    def test_schedule_remove_modes_are_not_duplicates(self):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(
+                [
+                    "dci-queue",
+                    "schedule",
+                    "-r",
+                    "8nodes",
+                    "echo",
+                    "@RESOURCE",
+                ]
+            ),
+            0,
+        )
+        self.assertEqual(
+            main.main(
+                [
+                    "dci-queue",
+                    "schedule",
+                    "--force-remove-resource",
+                    "8nodes",
+                    "echo",
+                    "@RESOURCE",
+                ]
+            ),
+            0,
+        )
+        for seq in ("1", "2"):
+            self.file_exists("queue", "8nodes", seq)
+
+    def test_queued_remove_without_reason_remains_forceful(self):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "8nodes", "cluster4"]), 0
+        )
+        self.assertEqual(
+            main.main(
+                [
+                    "dci-queue",
+                    "schedule",
+                    "--force-remove-resource",
+                    "8nodes",
+                    "echo",
+                    "@RESOURCE",
+                ]
+            ),
+            0,
+        )
+        queuefile = os.path.join(self.queue_dir, "queue", "8nodes", "1")
+        with open(queuefile) as fd:
+            data = json.load(fd)
+        del data["remove_reason"]
+        with open(queuefile, "w") as fd:
+            json.dump(data, fd)
+        self.assertEqual(main.main(["dci-queue", "run", "8nodes"]), 0)
+        self.doesnt_exist("reason", "8nodes", "cluster4")
+        self.doesnt_exist("pool", "8nodes", "cluster4")
+
+    @patch("dciqueue.run_cmd.remove_resource_cmd.remove_resource", return_value=1)
+    def test_failed_scheduled_removal_does_not_run_command(self, remove_resource):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "8nodes", "cluster4"]), 0
+        )
+        marker = os.path.join(self.queue_dir, "ran")
+        self.assertEqual(
+            main.main(
+                [
+                    "dci-queue",
+                    "schedule",
+                    "-r",
+                    "8nodes",
+                    "--",
+                    "bash",
+                    "-c",
+                    "touch %s; echo @RESOURCE" % marker,
+                ]
+            ),
+            0,
+        )
+        self.assertEqual(main.main(["dci-queue", "run", "8nodes"]), 1)
+        self.assertFalse(os.path.exists(marker))
+        self.file_exists("available", "8nodes", "cluster4")
 
     def test_unschedule(self):
         self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
