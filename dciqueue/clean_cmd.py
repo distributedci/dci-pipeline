@@ -58,18 +58,10 @@ def execute_command(args):
                     log.info("Deleting stale file %s.%s" % (pid, run_cmd.EXT))
                     path = os.path.join(args.top_dir, "queue", args.pool, execfile)
                     os.unlink(path)
-                    free_resource(res, args)
+                    booked = data.get("booked", [(res, args.pool)])
+                    run_cmd.free_resources(booked, args.top_dir)
 
     return 0
-
-
-def free_resource(res, args):
-    path = os.path.join(args.top_dir, "pool", args.pool, res)
-
-    if os.path.exists(path):
-        symlink = os.path.join(args.top_dir, "available", args.pool, res)
-        log.debug("Creating symlink %s" % symlink)
-        os.symlink(path, symlink)
 
 
 # clean_cmd.py ends here

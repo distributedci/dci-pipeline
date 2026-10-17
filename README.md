@@ -819,6 +819,30 @@ $ dci-queue add-resource 8nodes cluster4
 $ dci-queue add-resource 8nodes cluster6
 ```
 
+To make resources in one pool depend on a resource in another pool, add them
+after the parent cluster is ready:
+
+```ShellSession
+$ dci-queue add-resource hub hub1
+$ dci-queue add-resource spoke spoke1 --parent hub/hub1
+$ dci-queue add-resource spoke spoke2 --parent hub/hub1
+```
+
+Booking `hub1` for a regular job leaves `spoke1` and `spoke2` available.
+Soft removing `hub1` also soft removes its linked spoke resources with the
+same reason. Adding `hub1` back restores only spokes removed by that parent;
+spokes already reserved for their own reason stay reserved. Force removing
+`hub1` fully removes all linked spokes, including independently reserved ones.
+Soft removing a spoke saves its parent so `add-resource spoke spoke1` restores
+the link. Force removing a spoke clears its parent link; specify `--parent`
+again when readding it.
+
+`dci-queue list` shows parent and dependent resources. Jobs using a linked
+resource receive `DCI_QUEUE_PARENT` and `DCI_QUEUE_PARENT_RES`. For each
+booked resource, including extra pool resources, indexed variables such as
+`DCI_QUEUE_PARENT2` and `DCI_QUEUE_PARENT_RES2` contain its parent when one
+exists. Parent values are pool and resource names, respectively.
+
 Schedule a dci-pipeline command on the `8nodes` pool at priority 1
 (the highest the priority, the soonest it'll be executed):
 
@@ -902,6 +926,54 @@ Remove the `8nodes` pool:
 ```ShellSession
 $ dci-queue remove-pool 8nodes
 ```
+
+To make resources in one pool relate to a resource in another pool:
+
+```ShellSession
+# Parent pool
+$ dci-queue add-pool parent
+$ dci-queue add-resource parent p1
+
+# Child pool
+$ dci-queue add-pool child 
+$ dci-queue add-resource child c1 --parent parent/p1
+$ dci-queue add-resource child c2 --parent parent/p1
+```
+
+- Scheduling `p1` for a regular task leaves `c1` and `c2` available.
+- Removal of `p1` also removes its linked children (`c1` and `c2`) resources with the same reason.
+- Adding `p1` back restores children resources removed by that parent; children already reserved for their own reason stay reserved.
+- Force removing `p1` fully removes all linked resources `c1` and `c2`, including independently reserved ones.
+- Removing a children saves its parent relationship, so `add-resource child c1` restores the relationship.
+- Force removing a children clears its parent link
+
+`dci-queue list` shows parent and dependent resources:
+
+```Shell
+# Parent relations
+$ dci-queue list parent
+Resources on the parent pool: p1
+Available resources on the parent pool: p1
+Relationships on the parent pool:
+ p1 <- child/c1, child/c2
+Executing commands on the parent pool:
+Queued commands on the parent pool:
+
+# Children relations
+$ dci-queue list child
+Resources on the child pool: c1 c2
+Available resources on the child pool: c1 c2
+Relationships on the child pool:
+ c1 -> parent/p1
+ c2 -> parent/p1
+Executing commands on the child pool:
+Queued commands on the child pool:
+```
+
+Tasks using a linked resource receive `DCI_QUEUE_PARENT` and `DCI_QUEUE_PARENT_RES`.
+For each scheduled resource, including extra pool resources, indexed variables such as
+`DCI_QUEUE_PARENT2` and `DCI_QUEUE_PARENT_RES2` contain its parent when one exists.
+Parent values are pool and resource names, respectively.
 
 ### Interactions with dci-pipeline-check and dci-pipeline-schedule
 
