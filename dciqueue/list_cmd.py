@@ -74,6 +74,24 @@ def execute_command(args):
         )
     )
 
+    relations = []
+    names = set(os.listdir(os.path.join(args.top_dir, "pool", args.pool)))
+    reason_dir = os.path.join(args.top_dir, "reason", args.pool)
+    if os.path.isdir(reason_dir):
+        names.update(os.listdir(reason_dir))
+    for name in sorted(names):
+        parent = lib.get_parent(args.top_dir, args.pool, name)
+        if parent:
+            relations.append(" %s -> %s/%s" % (name, *parent))
+        children = lib.children_of(args.top_dir, args.pool, name)
+        if children:
+            relations.append(
+                " %s <- %s" % (name, ", ".join("%s/%s" % child for child in children))
+            )
+    if relations:
+        print("Relationships on the %s pool:" % args.pool)
+        print("\n".join(relations))
+
     reasondir = os.path.join(args.top_dir, "reason", args.pool)
     if os.path.exists(reasondir):
         reasons = []
