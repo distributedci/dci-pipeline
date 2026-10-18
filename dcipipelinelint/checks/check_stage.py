@@ -13,7 +13,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-"""Check for valid stage names."""
+"""Check for valid stage and prev_stages names."""
 
 from dcipipelinelint.result import LintResult
 
@@ -31,7 +31,7 @@ VALID_STAGES = [
 
 def check(jobdef, filename, line_number):
     """
-    Check if stage field is in the predefined list.
+    Check if the stage and prev_stages fields are in the predefined list.
 
     Args:
         jobdef: Job definition dictionary
@@ -59,5 +59,23 @@ def check(jobdef, filename, line_number):
                 job_name=jobdef.get("name"),
             )
         )
+
+    prev_stages = jobdef.get("prev_stages")
+    if prev_stages:
+        # prev_stages may be a single string or a list of strings
+        if not isinstance(prev_stages, list):
+            prev_stages = [prev_stages]
+        for prev_stage in prev_stages:
+            if prev_stage not in VALID_STAGES:
+                results.append(
+                    LintResult(
+                        filename=filename,
+                        line=line_number,
+                        severity="E",
+                        check_id="invalid-prev-stage",
+                        message=f"prev_stages entry '{prev_stage}' is not in predefined list: {', '.join(VALID_STAGES)}",
+                        job_name=jobdef.get("name"),
+                    )
+                )
 
     return results

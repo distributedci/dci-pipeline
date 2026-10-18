@@ -68,3 +68,45 @@ class TestCheckStage:
         """Test that check is skipped when jobdef is None."""
         results = check(None, "test-pipeline.yml", None)
         assert len(results) == 0
+
+    def test_valid_prev_stages_string(self):
+        """Test that a valid prev_stages given as a string passes."""
+        jobdef = {"name": "test-job", "stage": "workload", "prev_stages": "install"}
+        results = check(jobdef, "test-pipeline.yml", 1)
+        assert len(results) == 0
+
+    def test_valid_prev_stages_list(self):
+        """Test that valid prev_stages given as a list passes."""
+        jobdef = {
+            "name": "test-job",
+            "stage": "workload",
+            "prev_stages": ["install", "upgrade"],
+        }
+        results = check(jobdef, "test-pipeline.yml", 1)
+        assert len(results) == 0
+
+    def test_invalid_prev_stages_string(self):
+        """Test that an invalid prev_stages given as a string fails."""
+        jobdef = {"name": "test-job", "stage": "workload", "prev_stages": "bogus"}
+        results = check(jobdef, "test-pipeline.yml", 1)
+        assert len(results) == 1
+        assert results[0].check_id == "invalid-prev-stage"
+        assert results[0].severity == "E"
+        assert "bogus" in results[0].message
+
+    def test_invalid_prev_stages_list(self):
+        """Test that each invalid entry in a prev_stages list is reported."""
+        jobdef = {
+            "name": "test-job",
+            "stage": "workload",
+            "prev_stages": ["install", "bogus", "nope"],
+        }
+        results = check(jobdef, "test-pipeline.yml", 1)
+        assert len(results) == 2
+        assert all(r.check_id == "invalid-prev-stage" for r in results)
+
+    def test_missing_prev_stages(self):
+        """Test that a missing prev_stages passes."""
+        jobdef = {"name": "test-job", "stage": "workload"}
+        results = check(jobdef, "test-pipeline.yml", 1)
+        assert len(results) == 0
