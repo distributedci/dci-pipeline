@@ -268,9 +268,12 @@ else
     # Find which pipeline directory contains a checked-out repo
     PIPELINES_DIR_FOR_GIT=$(find_checked_out_pipelines_dir "$PWD")
     PIPELINES_REPO=$(cd "$PIPELINES_DIR_FOR_GIT" && basename $(git config --local remote.origin.url) .git)
+    # Search the change checkout when it is present; otherwise the configured dirs.
+    pipeline_lookup_dirs="$PIPELINES_DIRS"
     if [ -d "$PIPELINES_REPO" ]; then
         PIPELINES_PATH=$(cd "$PIPELINES_DIR_FOR_GIT" && git rev-parse --show-prefix)
         PIPELINES_DIR="$PWD/$PIPELINES_REPO/$PIPELINES_PATH"
+        pipeline_lookup_dirs="$PIPELINES_DIR"
     fi
     # lookup the first pipeline file
     first_pipeline=
@@ -283,7 +286,7 @@ else
                 break
                 ;;
             *)
-                first_pipeline=$(find_pipeline_file "$arg" "$PIPELINES_DIRS")
+                first_pipeline=$(find_pipeline_file "$arg" "$pipeline_lookup_dirs")
                 break
                 ;;
         esac
