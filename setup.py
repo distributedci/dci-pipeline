@@ -24,7 +24,7 @@ readme = open(os.path.join(root_dir, "README.md")).read()
 
 setuptools.setup(
     name="dci-pipeline",
-    version="0.16.0",  # keep in sync with dci-pipeline.spec and Dockerfile
+    version="0.16.1",  # keep in sync with dci-pipeline.spec and Dockerfile
     packages=setuptools.find_packages(exclude=("tests")),
     author="Distributed CI team",
     author_email="distributed-ci@redhat.com",
@@ -40,13 +40,16 @@ setuptools.setup(
         "Operating System :: POSIX :: Linux",
         "Programming Language :: Python :: 3",
     ],
+    # Use a plain script for dci-queue so the host binary does not look up the
+    # setuptools distribution named "dci-pipeline" (needed when only the
+    # dci-queue RPM is installed, e.g. with dci-pipeline-podman).
+    scripts=["scripts/dci-queue"],
     entry_points={
         "console_scripts": [
             "dci-pipeline=dcipipeline.main:main",
             "dci-auto-launch=dcipipeline.auto:main",
             "dci-rebuild-pipeline=dcipipeline.rebuild_pipeline:main",
             "dci-diff-pipeline=dcipipeline.diff_pipeline:main",
-            "dci-queue=dciqueue.main:main",
             "dci-agent-ctl=dciagent.main:main",
             "dci-settings2pipeline=dciagent.main:main_s2p",
             "dci-pipeline-lint=dcipipelinelint.main:main",
