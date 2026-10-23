@@ -8,7 +8,7 @@
 
 Name:           dci-pipeline
 # to keep in sync with setup.py and Dockerfile
-Version:        0.12.0
+Version:        0.16.0
 Release:        1.VERS%{?dist}
 Summary:        CI pipeline management for DCI jobs
 License:        ASL 2.0
@@ -23,7 +23,7 @@ Requires:       dci-queue = %{version}-%{release}
 BuildRequires:  python2-devel
 BuildRequires:  python2-setuptools
 Requires:       PyYAML
-Requires:       python2-dciclient >= 3.1.0
+Requires:       python2-dciclient >= 4.2.0
 Requires:       python2-ansible-runner
 Requires:       python-prettytable
 Requires:       python2-libselinux
@@ -34,7 +34,7 @@ Requires:       python2-virtualenv
 BuildRequires:  python3-devel
 BuildRequires:  python3-setuptools
 Requires:       python3-PyYAML
-Requires:       python3-dciclient >= 3.1.0
+Requires:       python3-dciclient >= 4.2.0
 Requires:       python3-ansible-runner
 Requires:       python3-libselinux
 Requires:       python3-virtualenv
@@ -95,6 +95,11 @@ for tool in alert dci-pipeline-helper extract-dependencies get-config-entry loop
 done
 install -m 644 tools/common %{buildroot}%{_datadir}/%{name}/common
 install -m 644 tools/common %{buildroot}%{_datadir}/%{name}/common-podman
+install -d -m 755 %{buildroot}%{_datadir}/%{name}/hooks/
+for hook in commit-msg post-rewrite pre-commit; do
+    install -m 754 hooks/$hook %{buildroot}%{_datadir}/%{name}/hooks/$hook
+done
+install -m 755 tools/dci-install-git-hooks %{buildroot}%{_bindir}/dci-install-git-hooks
 install -m 755 tools/dci-pipeline-schedule %{buildroot}%{_bindir}/dci-pipeline-schedule
 install -m 755 tools/dci-pipeline-schedule %{buildroot}%{_bindir}/dci-pipeline-schedule-podman
 install -m 755 tools/dci-pipeline-check %{buildroot}%{_bindir}/dci-pipeline-check
@@ -169,6 +174,9 @@ exit 0
 %{_datadir}/%{name}/send_comment
 %{_datadir}/%{name}/test-runner
 %{_datadir}/%{name}/yaml2json
+%{_bindir}/dci-install-git-hooks
+%{_bindir}/dci-pipeline-lint
+%{_datadir}/%{name}/hooks/
 
 %files podman
 %{_bindir}/*-podman
@@ -179,9 +187,24 @@ exit 0
 %attr(2770, dci-queue, dci-queue) /var/lib/dci-queue
 
 %changelog
+* Fri Aug 21 2026 Tony Garcia <tonyg@redhat.com> 0.16.0-1
+- Bump to use dciclient with support to redacted files
+
+* Thu Jun 25 2026 Tony Garcia <tonyg@redhat.com> 0.15.0-1
+- Add vault file option to decrypt
+
+* Tue Jun  9 2026 Tony Garcia <tonyg@redhat.com> 0.14.0-1
+- Add more post-rewrite git hook
+
+* Wed Feb 18 2026 Frederic Lepied <flepied@redhat.com> 0.13.0-1
+- add dci-install-git-hooks command to install gitleaks-based git hooks
+
 * Mon Dec 29 2025 Frederic Lepied <flepied@redhat.com> 0.12.1-1
 - add multiple paths to PIPELINES_DIR
 - add support for INVENTORIES_DIR in config
+
+* Fri Dec 19 2025 Frederic Lepied <flepied@redhat.com> 0.12.0-1
+- add automatic type conversion for command line arguments (int, float, bool)
 
 * Mon Jun 02 2025 Frederic Lepied <flepied@redhat.com> 0.11.1-1
 - add support for multi-pool in dci-queue commands

@@ -23,16 +23,7 @@ if [[ ${gl} -ne 0 ]]; then
     exit ${gl}
 fi
 
-# Create a signature and a hash
-GL_VER=$(gitleaks version)
-TS=$(date --utc +%FT%T)
-GL_SIGN=$(echo -n "${GL_VER}|${TS}" | base64)
-GL_HASH=$(echo -n ${GL_SIGN}| sha1sum | awk '{print $1}')
-
-# Store the data in a temp file to be added as a git msg
-cat > .git/.gitleaks_data <<EOF
-Gitleaks-Sign: ${GL_SIGN}
-Gitleaks-Hash: ${GL_HASH}
-EOF
+# Signal success so the commit-msg hook generates the signature
+gitleaks version > .git/.gitleaks_passed
 
 exit 0

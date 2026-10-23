@@ -1,21 +1,24 @@
 #!/bin/bash
 
-# Get the commit message file
 COMMIT_MSG_FILE=$1
+GL_PASSED=".git/.gitleaks_passed"
 
-# Check if gitleaks data file exists from pre-commit hook
-GL_DATA=".git/.gitleaks_data"
+if [[ -f "${GL_PASSED}" ]]; then
+    GL_VER=$(cat "${GL_PASSED}")
+    rm -f "${GL_PASSED}"
 
-if [[ -f "${GL_DATA}" ]]; then
-    # remove any line starting with Gitleaks-
+    TREE_HASH=$(git write-tree)
+    TS=$(date --utc +%FT%T)
+    GL_SIGN=$(echo -n "${GL_VER}|${TS}|${TREE_HASH}" | base64 -w 0)
+    GL_HASH=$(echo -n "${GL_SIGN}" | sha256sum | awk '{print $1}')
+
+    # Remove any existing Gitleaks- lines
     sed -i -e '/^Gitleaks-/d' "${COMMIT_MSG_FILE}"
 
-    # Append data to commit message
+    # Append fresh signature
     echo "" >> "${COMMIT_MSG_FILE}"
-    cat "${GL_DATA}" >> "${COMMIT_MSG_FILE}"
-
-    # Clean up temporary file
-    rm -f "${GL_DATA}"
+    echo "Gitleaks-Sign: ${GL_SIGN}" >> "${COMMIT_MSG_FILE}"
+    echo "Gitleaks-Hash: ${GL_HASH}" >> "${COMMIT_MSG_FILE}"
 fi
 
 exit 0

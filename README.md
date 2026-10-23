@@ -25,7 +25,7 @@ Once `dci-pipeline` package is installed, the files and resources you can find i
 - `/etc/sysconfig` folder contains the content of `sysconfig` folder, which is `dci-pipeline` file.
 - `/etc/bash_completion.d` contains a `dci-queue` file related to this tool, which comes from `dciqueue/dci-queue.bash_completion` file.
 - `/usr/share/dci-pipeline` contains the following scripts from `tools` folder in this repo: `alert`, `common`, `dci-pipeline-helper`, `extract-dependencies`, `get-config-entry`, `loop_until_failure`, `loop_until_success`, `send_status`, `send_comment`, `test-runner` and `yaml2json`. If `podman` flavour is selected, then `<script>-podman` scripts are placed here too.
-- `/usr/bin` folder holds scripts such as `dci-pipeline`, `dci-auto-launch`, `dci-pipeline-schedule`, `dci-pipeline-check`, `dci-queue`, `dci-agent-ctl`, `dci-rebuild-pipeline`, `dci-settings2pipeline` and `dci-diff-pipeline`. If `podman` flavour is selected, then `<script>-podman` scripts are placed here too. Note that some of these scripts come from `tools` folder, and others are generated from folders like `dciagent`, `dcipipeline` or `dciqueue`, and their podman flavours are located in `container` folder.
+- `/usr/bin` folder holds scripts such as `dci-pipeline`, `dci-auto-launch`, `dci-pipeline-schedule`, `dci-pipeline-check`, `dci-queue`, `dci-agent-ctl`, `dci-rebuild-pipeline`, `dci-settings2pipeline`, `dci-diff-pipeline` and `dci-install-git-hooks`. If `podman` flavour is selected, then `<script>-podman` scripts are placed here too. Note that some of these scripts come from `tools` folder, and others are generated from folders like `dciagent`, `dcipipeline` or `dciqueue`, and their podman flavours are located in `container` folder.
 
 Also, have in mind that:
 
@@ -51,9 +51,9 @@ Here is a pipeline example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -69,9 +69,9 @@ Example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -157,7 +157,7 @@ If you need to create the inventory dynamically, you can use the `inventory_play
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
     inventory_playbook: ~/config/inventory.yml
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
@@ -199,9 +199,9 @@ For example, a first job will export a `kubeconfig` file:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -238,10 +238,10 @@ a corresponding `outputs` like this:
 
 ```YAML
 - name: example-cnf
-  stage: cnf
-  prev_stages: [ocp]
+  stage: workload
+  prev_stages: [install]
   ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
-  dci_credentials: /etc/dci-openshift-app-agent/dci_credentials.yml
+  dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
   topic: OCP-4.14
   components: []
   inputs:
@@ -271,9 +271,9 @@ an example on how to use it:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -289,9 +289,9 @@ continue testing the next layers in the pipeline. Example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     topic: OCP-4.14
     components:
@@ -311,9 +311,9 @@ If you want to pass environment variables to the agent. Example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     ansible_extravars:
       answer: 42
     ansible_envvars:
@@ -334,9 +334,9 @@ by an actual path of a temporary directory. Example:
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     ansible_extravars:
       answer: 42
     ansible_envvars:
@@ -375,9 +375,9 @@ You can specify extra Ansible variable files using the
 
 ```YAML
   - name: openshift-vanilla
-    stage: ocp
+    stage: install
     ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
-    ansible_inventory: ~/inventories/cluster.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
     ansible_extravars_files:
       - agents/openshift-vanilla/vars.yml
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
@@ -385,6 +385,30 @@ You can specify extra Ansible variable files using the
     components:
       - ocp
 ```
+
+### Using a vault password file
+
+By default, `dci-pipeline` uses the `DCI_API_SECRET` from the remoteCI
+credentials to decrypt `!vault` encrypted values. If you need to use a
+different vault password (for example when not using remoteCI
+credentials), you can specify a `dci_vault_file` key pointing to a
+plaintext file containing the vault password:
+
+```YAML
+  - name: openshift-vanilla
+    stage: install
+    ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
+    dci_vault_file: ~/.config/dci-pipeline/vault-password.txt
+    dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
+    topic: OCP-4.14
+    components:
+      - ocp
+```
+
+The file must contain a single line with the password used to encrypt
+the vault values. This is the standard Ansible vault password file
+format.
 
 ### Feeding variables from the command line
 
@@ -433,9 +457,9 @@ configuration of the job. Example:
 
 ```YAML
   - name: workload
-    stage: app
+    stage: workload
     ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
-    ansible_inventory: ~/inventories/app.yml
+    ansible_inventory: "@QUEUE/@RESOURCE-installed"
     dci_credentials: ~/.config/dci-pipeline/dci_credentials.yml
     use_previous_topic: true
 ```
@@ -460,13 +484,24 @@ $ dci-pipeline-schedule ocp-vanilla workload
 ...
 ```
 
-For this to work, you need to configure `PIPELINES_DIR` in one these
+For this to work, you need to configure `PIPELINES_DIRS` in one these
 files: `~/.config/dci-pipeline/config` or
 `/etc/dci-pipeline/config`. Example:
 
 ```Shell
-PIPELINES_DIR=~/my-config-dir/pipelines
+PIPELINES_DIRS=~/my-config-dir/pipelines
 ```
+
+You can also specify multiple directories separated by colons (`:`),
+similar to the PATH environment variable. The directories are searched
+in order, and the first match wins, allowing earlier directories to
+override later ones:
+
+```Shell
+PIPELINES_DIRS=~/base-pipelines:~/project-pipelines:~/custom-pipelines
+```
+
+Inventories are looked-up the same way using the `INVENTORIES_DIRS` variable.
 
 You can also define the default `dci-queue` queue with the
 `DEFAULT_QUEUE` variable. To schedule on a specific `dci-queue` pool,
@@ -476,6 +511,52 @@ use `-p` like this:
 $ dci-pipeline-schedule -p my-pool ocp-vanilla workload
 ...
 ```
+
+## dci-pipeline-lint
+
+The `dci-pipeline-lint` utility validates dci-pipeline job definition files
+for common issues and best practices. It performs checks such as filename
+format validation, stage name validation, topic presence, inventory path
+validation, job name consistency with the pipeline filename, correct usage
+of `dci_config_dirs` (plural, for dci-openshift-agent) vs `dci_config_dir`
+(singular, for dci-openshift-app-agent), and more. Run it on your pipeline
+files before committing:
+
+```ShellSession
+$ dci-pipeline-lint pipeline.yml
+$ dci-pipeline-lint --format json pipeline1.yml pipeline2.yml
+$ dci-pipeline-lint --format junit pipeline.yml > results.xml
+$ dci-pipeline-lint --severity E pipeline.yml  # Show only errors
+```
+
+Notable checks:
+
+- **Inventory paths** (`absolute-inventory`): warns when
+  `ansible_inventory` uses an absolute filesystem path (`/...` or
+  `~/...`). Prefer relative paths resolved via `INVENTORIES_DIRS` (see
+  [Inventory Path Resolution](#inventory-path-resolution)). `@QUEUE` and
+  `@RESOURCE` placeholders are allowed. Skipped when `inventory_playbook`
+  is set.
+- **Inventory mapping** (`inventory-mapping-mismatch`): warns when
+  `ansible_inventory` does not match the expected pattern for the
+  playbook (`@QUEUE/@RESOURCE` for openshift-agent,
+  `@QUEUE/@RESOURCE-installed` for openshift-app-agent). Skipped when
+  `inventory_playbook` is set.
+- **Job names** (`job-name-mismatch`): warns when the job `name` does not
+  match the pipeline filename. A version segment in the filename is
+  ignored for matching (for example, job `acm-hub` matches
+  `acm-hub-4.20-pipeline.yml`, and job `acm-hub-4.20` matches
+  `acm-hub-4.20-pipeline.yml`).
+
+The utility supports three output formats:
+- **rpmlint** (default): Human-readable rpmlint-style format
+- **json**: Structured JSON format with summary statistics
+- **junit**: JUnit XML format for CI/CD integration
+
+Exit code is 0 if no errors are found, 1 if errors are present.
+
+See [PIPELINE_BEST_PRACTICES.md](PIPELINE_BEST_PRACTICES.md) for the
+full list of checks, their severities, and how to fix each finding.
 
 ## dci-pipeline-check
 
@@ -604,14 +685,66 @@ change. This will direct `dci-pipeline-check` to test in a specific way:
 
 ```YAML
   - name: workload
-    stage: app
+    stage: workload
     ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
-    ansible_inventory: ~/inventories/@QUEUE/@RESOURCE.yml
+    ansible_inventory: "@QUEUE/@RESOURCE-installed"
     configuration: "@QUEUE"
     ansible_extravars:
       custom_config: /path/to/config/for/@QUEUE/@RESOURCE-config.yml
     ...
 ```
+
+### Inventory Path Resolution
+
+To enable reusability of pipeline files across different lab environments,
+you can use relative inventory paths that will be resolved via the
+`INVENTORIES_DIRS` configuration variable.
+
+**Configuration:**
+
+```Shell
+# ~/.config/dci-pipeline/config or /etc/dci-pipeline/config
+INVENTORIES_DIRS=~/shared-inventories:~/lab-specific-inventories
+```
+
+**Pipeline files with relative inventory paths:**
+
+`dci-pipeline-lint` warns when `ansible_inventory` uses an absolute
+filesystem path. Use relative paths instead.
+
+For `openshift-agent` jobs, use the pattern `@QUEUE/@RESOURCE`:
+
+```YAML
+  - name: openshift-vanilla
+    stage: install
+    ansible_playbook: /usr/share/dci-openshift-agent/dci-openshift-agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE"
+    topic: OCP-4.18
+    components:
+      - ocp
+```
+
+For `openshift-app-agent` jobs, use the pattern `@QUEUE/@RESOURCE-installed`:
+
+```YAML
+  - name: example-cnf
+    stage: workload
+    ansible_playbook: /usr/share/dci-openshift-app-agent/dci-openshift-app-agent.yml
+    ansible_inventory: "@QUEUE/@RESOURCE-installed"
+    use_previous_topic: true
+    components:
+      - nfv-example-cnf-index
+```
+
+**Resolution behavior:**
+
+- **Absolute paths** (starting with `/`): Used as-is, no resolution attempted (backward compatible)
+- **Relative paths**: Resolved by prepending the first directory from `INVENTORIES_DIRS`
+  - Example: `@QUEUE/@RESOURCE` → `<INVENTORIES_DIRS>/@QUEUE/@RESOURCE`
+  - After resolution, `@QUEUE` and `@RESOURCE` are substituted as usual
+
+This allows sharing pipeline files across git repositories while keeping
+inventory files lab-specific.
 
 `dci-pipeline-schedule` and `dci-pipeline-check` are also managing the `topic` of jobs if there are only `dci-openshift-app-agent` job definitions without any `dci-openshift-agent` job definitions in the pipeline. To do so they rely on the running cluster defined by the `KUBECONFIG` environment variable or the ansible variable `kubeconfig_path` defined either in the job definition or in the inventory (`all.vars.kubeconfig_path`). Then they deduce the topic of the job from the OpenShift version of the cluster.
 
@@ -859,3 +992,64 @@ using <https://pre-commit.com/> before accepting a commit, do the following:
 ```ShellSession
 $ tox -epre-commit
 ```
+
+### dci-install-git-hooks
+
+`dci-install-git-hooks` installs gitleaks-based git hooks (`pre-commit`
+and `commit-msg`) into a git repository. These hooks scan staged
+changes for hardcoded secrets using
+[gitleaks](https://github.com/gitleaks/gitleaks) and embed a
+cryptographic signature into each commit message (`Gitleaks-Sign` and
+`Gitleaks-Hash` trailers).
+
+The signature binds the gitleaks scan result to the exact commit
+content (via the git tree hash), so it cannot be reused across
+different commits. A CI workflow can then verify that every PR commit
+was scanned locally before being pushed.
+
+#### Prerequisites
+
+[gitleaks](https://github.com/gitleaks/gitleaks) must be installed and
+available in your `PATH`.
+
+#### Usage
+
+Install hooks into the current repository:
+
+```ShellSession
+$ dci-install-git-hooks
+```
+
+Install hooks into a specific repository:
+
+```ShellSession
+$ dci-install-git-hooks /path/to/repo
+```
+
+The command creates symlinks in `.git/hooks/` pointing to the hook
+scripts shipped with `dci-pipeline`. If a hook already exists, it is
+skipped.
+
+#### What the hooks do
+
+1. **pre-commit**: runs `gitleaks git --pre-commit` on staged changes.
+   If no secrets are found, it generates a signature containing the
+   gitleaks version, a UTC timestamp, and the git tree hash of the
+   staged content. The signature and its SHA-256 hash are stored in
+   `.git/.gitleaks_data`.
+
+2. **commit-msg**: appends the `Gitleaks-Sign` and `Gitleaks-Hash`
+   trailers from `.git/.gitleaks_data` to the commit message.
+
+#### CI verification
+
+A GitHub Actions workflow (`.github/workflows/gitleaks-verify.yml`)
+verifies the gitleaks signature on every pull request:
+
+- Checks that `Gitleaks-Sign` and `Gitleaks-Hash` are present in the
+  last commit message.
+- Verifies the SHA-256 hash matches the signature.
+- Decodes the signature and checks that the embedded tree hash matches
+  the actual commit tree hash.
+- Warns if the signature is older than 7 days.
+- Runs a full gitleaks scan on the PR diff as a safety net.

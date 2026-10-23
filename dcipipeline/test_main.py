@@ -15,10 +15,11 @@
 
 import os
 import unittest
-
-import mock
+from unittest import mock
 
 from dcipipeline.main import (
+    build_cmdline,
+    convert_value_type,
     dci,
     extract_build_tags,
     extract_tags,
@@ -29,6 +30,7 @@ from dcipipeline.main import (
     get_components,
     get_config,
     get_prev_jobdefs,
+    load_jobdef_file,
     overload_dicts,
     post_process_jobdef,
     pre_process_jobdef,
@@ -119,6 +121,53 @@ class TestMain(unittest.TestCase):
         args = ["dci-pipeline", "@name:name=my-pipeline"]
         _, _, opts = process_args(args)
         self.assertTrue(m.called)
+
+    def test_process_args_boolean_true(self):
+        args = ["dci-pipeline", "jobdef:debug=true"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"debug": True}}])
+
+    def test_process_args_boolean_false(self):
+        args = ["dci-pipeline", "jobdef:enabled=false"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"enabled": False}}])
+
+    def test_process_args_integer(self):
+        args = ["dci-pipeline", "jobdef:timeout=300"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"timeout": 300}}])
+
+    def test_process_args_integer_zero(self):
+        args = ["dci-pipeline", "jobdef:retries=0"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"retries": 0}}])
+        self.assertIsInstance(result[0]["jobdef"]["retries"], int)
+
+    def test_process_args_integer_one(self):
+        args = ["dci-pipeline", "jobdef:count=1"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"count": 1}}])
+        self.assertIsInstance(result[0]["jobdef"]["count"], int)
+
+    def test_process_args_float(self):
+        args = ["dci-pipeline", "jobdef:threshold=3.14"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"threshold": 3.14}}])
+
+    def test_process_args_list_with_types(self):
+        args = ["dci-pipeline", "jobdef:values=42,3.14,true,hello"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"values": [42, 3.14, True, "hello"]}}])
+
+    def test_process_args_dict_with_int_value(self):
+        args = ["dci-pipeline", "jobdef:config=timeout:300"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"config": {"timeout": 300}}}])
+
+    def test_process_args_dict_with_bool_value(self):
+        args = ["dci-pipeline", "jobdef:config=enabled:true"]
+        result, _, _ = process_args(args)
+        self.assertEqual(result, [{"jobdef": {"config": {"enabled": True}}}])
 
     def test_overload_dicts_add(self):
         jobdef = {"first": "value"}
@@ -242,8 +291,9 @@ class TestMain(unittest.TestCase):
         self.assertTrue(not m_upload_junit.called)
         m_rmtree.assert_called_with("/tmp/tmppath")
 
+    @mock.patch("dcipipeline.main.dci_redact.should_redact", return_value=False)
     @mock.patch("dcipipeline.main.dci_file.create")
-    def test_upload_junit_files_from_dir(self, m):
+    def test_upload_junit_files_from_dir(self, m, m_should_redact):
         try:
             os.makedirs("/tmp/junit-tmppath")
         except Exception:
@@ -377,6 +427,211 @@ class TestMain(unittest.TestCase):
             result = dci(func)
         self.assertEqual(result, resp_200)
         self.assertEqual(func.call_count, 2)
+
+
+class TestBuildCmdline(unittest.TestCase):
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_default_vault(self, m):
+        jobdef = {}
+        cmd = build_cmdline(jobdef)
+        self.assertTrue(cmd.startswith("--vault-id /usr/bin/dci-vault-client"))
+
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_with_dci_vault_file(self, m):
+        jobdef = {"dci_vault_file": "/path/to/vault-password.txt"}
+        cmd = build_cmdline(jobdef)
+        self.assertIn("--vault-password-file /path/to/vault-password.txt", cmd)
+        self.assertNotIn("--vault-id", cmd)
+
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_with_dci_vault_file_tilde(self, m):
+        jobdef = {"dci_vault_file": "~/vault-password.txt"}
+        cmd = build_cmdline(jobdef)
+        self.assertIn("--vault-password-file", cmd)
+        self.assertNotIn("~", cmd)
+        self.assertNotIn("--vault-id", cmd)
+
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_with_tags(self, m):
+        jobdef = {"ansible_tags": ["tag1", "tag2"]}
+        cmd = build_cmdline(jobdef)
+        self.assertIn("--tags tag1,tag2", cmd)
+
+    @mock.patch(
+        "dcipipeline.main.get_vault_client", return_value="/usr/bin/dci-vault-client"
+    )
+    def test_build_cmdline_with_skip_tags(self, m):
+        jobdef = {"ansible_skip_tags": ["skip1"]}
+        cmd = build_cmdline(jobdef)
+        self.assertIn("--skip-tags skip1", cmd)
+
+
+class TestLoadJobdefFileVault(unittest.TestCase):
+    @mock.patch("dcipipeline.main.load_credentials")
+    @mock.patch("dcipipeline.main.CLI.setup_vault_secrets", return_value=[])
+    def test_load_jobdef_file_with_dci_vault_file(self, m_vault, m_creds):
+        basedir = os.path.dirname(__file__)
+        fullpath = os.path.join(basedir, "comp.yml")
+        m_creds.return_value = {"DCI_API_SECRET": "fake-secret"}
+        load_jobdef_file(fullpath, basedir)
+        m_vault.assert_called_once()
+        call_kwargs = m_vault.call_args
+        self.assertNotIn("vault_password_files", call_kwargs.kwargs)
+        self.assertIn("vault_ids", call_kwargs.kwargs)
+
+    @mock.patch("dcipipeline.main.load_credentials")
+    @mock.patch("dcipipeline.main.CLI.setup_vault_secrets", return_value=[])
+    def test_load_jobdef_file_with_vault_password_file(self, m_vault, m_creds):
+        import tempfile
+
+        basedir = os.path.dirname(__file__)
+        m_creds.return_value = {"DCI_API_SECRET": "fake-secret"}
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as vf:
+            vf.write("my-vault-password\n")
+            vault_file = vf.name
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yml", dir=basedir, delete=False
+            ) as tf:
+                tf.write(
+                    "---\n"
+                    "  - name: test-job\n"
+                    "    type: ocp\n"
+                    "    dci_vault_file: %s\n"
+                    "    ansible_playbook: agents/openshift-edge/agent.yml\n"
+                    "    topic: OCP-4.8\n"
+                    "    components:\n"
+                    "      - ocp\n" % vault_file
+                )
+                tmp_pipeline = tf.name
+            load_jobdef_file(tmp_pipeline, basedir)
+            m_vault.assert_called_once()
+            call_kwargs = m_vault.call_args
+            self.assertIn("vault_password_files", call_kwargs.kwargs)
+            self.assertEqual(call_kwargs.kwargs["vault_password_files"], [vault_file])
+            self.assertEqual(call_kwargs.kwargs["vault_ids"], [])
+        finally:
+            os.unlink(vault_file)
+            os.unlink(tmp_pipeline)
+
+
+class TestConvertValueType(unittest.TestCase):
+    def test_boolean_true_lowercase(self):
+        self.assertEqual(convert_value_type("true"), True)
+
+    def test_boolean_true_uppercase(self):
+        self.assertEqual(convert_value_type("TRUE"), True)
+
+    def test_boolean_true_mixedcase(self):
+        self.assertEqual(convert_value_type("TrUe"), True)
+
+    def test_boolean_yes(self):
+        self.assertEqual(convert_value_type("yes"), True)
+        self.assertEqual(convert_value_type("YES"), True)
+
+    def test_boolean_on(self):
+        self.assertEqual(convert_value_type("on"), True)
+        self.assertEqual(convert_value_type("ON"), True)
+
+    def test_boolean_false_lowercase(self):
+        self.assertEqual(convert_value_type("false"), False)
+
+    def test_boolean_false_uppercase(self):
+        self.assertEqual(convert_value_type("FALSE"), False)
+
+    def test_boolean_false_mixedcase(self):
+        self.assertEqual(convert_value_type("FaLsE"), False)
+
+    def test_boolean_no(self):
+        self.assertEqual(convert_value_type("no"), False)
+        self.assertEqual(convert_value_type("NO"), False)
+
+    def test_boolean_off(self):
+        self.assertEqual(convert_value_type("off"), False)
+        self.assertEqual(convert_value_type("OFF"), False)
+
+    def test_integer_zero(self):
+        self.assertEqual(convert_value_type("0"), 0)
+        self.assertIsInstance(convert_value_type("0"), int)
+
+    def test_integer_one(self):
+        self.assertEqual(convert_value_type("1"), 1)
+        self.assertIsInstance(convert_value_type("1"), int)
+
+    def test_integer_positive(self):
+        self.assertEqual(convert_value_type("42"), 42)
+        self.assertEqual(convert_value_type("300"), 300)
+
+    def test_integer_negative(self):
+        self.assertEqual(convert_value_type("-42"), -42)
+        self.assertEqual(convert_value_type("-1"), -1)
+
+    def test_float_positive(self):
+        self.assertEqual(convert_value_type("3.14"), 3.14)
+        self.assertIsInstance(convert_value_type("3.14"), float)
+
+    def test_float_negative(self):
+        self.assertEqual(convert_value_type("-2.5"), -2.5)
+        self.assertIsInstance(convert_value_type("-2.5"), float)
+
+    def test_float_zero(self):
+        self.assertEqual(convert_value_type("0.0"), 0.0)
+        self.assertIsInstance(convert_value_type("0.0"), float)
+
+    def test_float_leading_zero(self):
+        self.assertEqual(convert_value_type("0.5"), 0.5)
+
+    def test_string_plain(self):
+        self.assertEqual(convert_value_type("hello"), "hello")
+
+    def test_string_with_spaces(self):
+        self.assertEqual(convert_value_type("hello world"), "hello world")
+
+    def test_string_url_http(self):
+        self.assertEqual(convert_value_type("http://example.com"), "http://example.com")
+
+    def test_string_url_https(self):
+        self.assertEqual(
+            convert_value_type("https://example.com"), "https://example.com"
+        )
+
+    def test_string_path(self):
+        self.assertEqual(convert_value_type("/path/to/file"), "/path/to/file")
+
+    def test_string_alphanumeric(self):
+        self.assertEqual(convert_value_type("abc123"), "abc123")
+
+    def test_non_string_int(self):
+        self.assertEqual(convert_value_type(42), 42)
+
+    def test_non_string_float(self):
+        self.assertEqual(convert_value_type(3.14), 3.14)
+
+    def test_non_string_bool(self):
+        self.assertEqual(convert_value_type(True), True)
+        self.assertEqual(convert_value_type(False), False)
+
+    def test_non_string_list(self):
+        lst = [1, 2, 3]
+        self.assertEqual(convert_value_type(lst), lst)
+
+    def test_non_string_dict(self):
+        dct = {"key": "value"}
+        self.assertEqual(convert_value_type(dct), dct)
+
+    def test_empty_string(self):
+        self.assertEqual(convert_value_type(""), "")
+
+    def test_string_with_only_spaces(self):
+        self.assertEqual(convert_value_type("   "), "   ")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2021-2024 Red Hat, Inc.
+# Copyright (C) 2021-2025 Red Hat, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may
 # not use this file except in compliance with the License. You may obtain
@@ -30,7 +30,7 @@ TOPDIR = os.path.abspath(
 
 DCI_LOGIN = os.environ.get("DCI_LOGIN", "admin")
 DCI_PASSWORD = os.environ.get("DCI_PASSWORD", "admin")
-DCI_CS_URL = os.environ.get("DCI_CS_URL", "http://127.0.0.1:5000")
+DCI_CS_URL = os.environ.get("DCI_CS_URL", "http://127.0.0.1:8000")
 
 
 def main(args):
@@ -163,15 +163,13 @@ def test_dci_pipeline_edge():
     )
     prefix = "      "
     aligned = prefix + out.replace("\n", "\n" + prefix)
-    with open(inventory, "w") as fp:
-        fp.write(
-            """all:
+    inventory_content = f"""all:
   vars:
     answer: !vault |
-%s
+{aligned}
 """
-            % aligned
-        )
+    with open(inventory, "w") as fp:
+        fp.write(inventory_content)
     rc = main(
         [
             "dci-pipeline",

@@ -39,6 +39,7 @@ from dciclient.v1.api import identity as dci_identity
 from dciclient.v1.api import job as dci_job
 from dciclient.v1.api import jobstate as dci_jobstate
 from dciclient.v1.api import pipeline as dci_pipeline
+from dciclient.v1.api import redact as dci_redact
 from dciclient.v1.api import topic as dci_topic
 
 # remove all handlers before adding the console handler to avoid a
@@ -127,14 +128,23 @@ def upload_junit_files_from_dir(context, jobdef, dir):
         _abs_file_path = os.path.join(dir, f)
         if os.path.isfile(_abs_file_path) and f.endswith(".xml"):
             log.info("Uploading junit file: %s" % _abs_file_path)
-            dci(
-                dci_file.create,
-                context,
-                f[:-4],  # remove .xml at the end
-                file_path=_abs_file_path,
-                mime="application/junit",
-                job_id=jobdef["job_info"]["job"]["id"],
-            )
+            redacted_path = None
+            if dci_redact.should_redact(redact=True):
+                dir_name = os.path.dirname(_abs_file_path)
+                redacted_path = os.path.join(dir_name, ".%s.redacted" % f)
+                dci_redact.redact_file(_abs_file_path, redacted_path)
+            try:
+                dci(
+                    dci_file.create,
+                    context,
+                    f[:-4],  # remove .xml at the end
+                    file_path=redacted_path or _abs_file_path,
+                    mime="application/junit",
+                    job_id=jobdef["job_info"]["job"]["id"],
+                )
+            finally:
+                if redacted_path and os.path.exists(redacted_path):
+                    os.remove(redacted_path)
         else:
             log.warning("%s is not a junit file" % _abs_file_path)
 
@@ -153,15 +163,24 @@ def load_jobdef_file(path, config_dir):
     jobdefs_raw_data = yaml.load(data, Loader=yaml.BaseLoader)
     try:
         creds = load_credentials(jobdefs_raw_data[0], config_dir)
+        vault_file = jobdefs_raw_data[0].get("dci_vault_file")
     except (KeyError, IndexError):
         log.warning("No credentials found to decrypt vault encrypted data.")
         creds = {"DCI_API_SECRET": "fake-secret"}
+        vault_file = None
     # Second pass decrypting !vault statements
-    os.environ["DCI_API_SECRET"] = creds["DCI_API_SECRET"]
     loader = DataLoader()
-    vault_secrets = CLI.setup_vault_secrets(
-        loader=loader, vault_ids=[get_vault_client()]
-    )
+    if vault_file:
+        vault_secrets = CLI.setup_vault_secrets(
+            loader=loader,
+            vault_ids=[],
+            vault_password_files=[os.path.expanduser(vault_file)],
+        )
+    else:
+        os.environ["DCI_API_SECRET"] = creds["DCI_API_SECRET"]
+        vault_secrets = CLI.setup_vault_secrets(
+            loader=loader, vault_ids=[get_vault_client()]
+        )
     ansible_yaml = []
     for assoc in from_yaml(data, vault_secrets=vault_secrets):
         assoc["_pipeline_path_"] = path
@@ -708,7 +727,10 @@ def get_vault_client():
 
 
 def build_cmdline(jobdef):
-    cmd = "--vault-id %s" % get_vault_client()
+    if "dci_vault_file" in jobdef:
+        cmd = "--vault-password-file %s" % os.path.expanduser(jobdef["dci_vault_file"])
+    else:
+        cmd = "--vault-id %s" % get_vault_client()
     for key, switch in (
         ("ansible_tags", "--tags"),
         ("ansible_skip_tags", "--skip-tags"),
@@ -777,6 +799,9 @@ def find_dci_ansible_dir(jobdef):
             envvars = {
                 "ANSIBLE_CALLBACK_PLUGINS": os.path.join(dci_ansible_dir, "callback"),
             }
+            pythonpath = os.getenv("PYTHONPATH")
+            if pythonpath:
+                envvars["PYTHONPATH"] = pythonpath
             if jobdef.get("ansible_envvars"):
                 if not isinstance(jobdef.get("ansible_envvars"), dict):
                     log.error("The 'ansible_envvars' jobdef key is not a dict.")
@@ -795,13 +820,22 @@ def upload_ansible_log(context, ansible_log_dir, jobdef):
     ansible_log = os.path.join(ansible_log_dir, "ansible.log")
     if os.path.exists(ansible_log):
         log.info("Uploading ansible.log from %s" % ansible_log)
-        dci(
-            dci_file.create,
-            context,
-            "ansible.log",
-            file_path=ansible_log,
-            job_id=jobdef["job_info"]["job"]["id"],
-        )
+        redacted_path = None
+        if dci_redact.should_redact(redact=True):
+            dir_name = os.path.dirname(ansible_log)
+            redacted_path = os.path.join(dir_name, ".ansible.log.redacted")
+            dci_redact.redact_file(ansible_log, redacted_path)
+        try:
+            dci(
+                dci_file.create,
+                context,
+                "ansible.log",
+                file_path=redacted_path or ansible_log,
+                job_id=jobdef["job_info"]["job"]["id"],
+            )
+        finally:
+            if redacted_path and os.path.exists(redacted_path):
+                os.remove(redacted_path)
     else:
         log.error("ansible.log not found in %s" % ansible_log)
 
@@ -841,9 +875,12 @@ def run_jobdef(context, jobdef, dci_credentials, data_dir, cancel_cb):
     )
     envvars.update(dci_credentials)
     envvars["DCI_JOB_ID"] = job_info["job"]["id"]
-    # Export the default vault id to be able to decrypt vault
-    # encrypted vars in sub-processes
-    envvars["ANSIBLE_VAULT_IDENTITY_LIST"] = get_vault_client()
+    if "dci_vault_file" in jobdef:
+        envvars["ANSIBLE_VAULT_PASSWORD_FILE"] = os.path.expanduser(
+            jobdef["dci_vault_file"]
+        )
+    else:
+        envvars["ANSIBLE_VAULT_IDENTITY_LIST"] = get_vault_client()
     # export DCI_PLAYBOOK_ARGS to be able to call sub ansible-playbook
     # cmd with the same arguments
     cmdline = build_cmdline(jobdef)
@@ -906,6 +943,34 @@ def usage(ret, cmd):
     sys.exit(ret)
 
 
+def convert_value_type(value):
+    """Convert a string value to its appropriate type (bool, int, float, or str).
+
+    Tries to convert in order: boolean, int, float, keeping as string if none match.
+    """
+    if isinstance(value, str):
+        # Try boolean conversion
+        if value.lower() in ("true", "yes", "on"):
+            return True
+        elif value.lower() in ("false", "no", "off"):
+            return False
+
+        # Try int conversion
+        try:
+            return int(value)
+        except ValueError:
+            pass
+
+        # Try float conversion
+        try:
+            return float(value)
+        except ValueError:
+            pass
+
+    # Return as-is if no conversion worked
+    return value
+
+
 def process_args(args):
     """process command line arguments
 
@@ -947,12 +1012,17 @@ def process_args(args):
                         if res[k][-1] == "":
                             res[k] = res[k][:-1]
                     else:
-                        res[k] = v
+                        res[k] = convert_value_type(v)
                     value = res
                 elif "," in value:
                     value = value.split(",")
                     if value[-1] == "":
                         value = value[:-1]
+                    # Convert each list item to appropriate type
+                    value = [convert_value_type(v) for v in value]
+                else:
+                    # Single value - convert to appropriate type
+                    value = convert_value_type(value)
             dct = overload.get(name, {})
             dct[key] = value
             overload[name] = dct

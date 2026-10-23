@@ -150,12 +150,12 @@ def execute_command(args):
                     out_fd.write(f'+ DCI_QUEUE_RES={os.environ["DCI_QUEUE_RES"]}\n')
                     out_fd.write(f'+ DCI_QUEUE_ID={os.environ["DCI_QUEUE_ID"]}\n')
                     out_fd.write(f'+ DCI_QUEUE_JOBID={os.environ["DCI_QUEUE_JOBID"]}\n')
-                    for idx in range(1, num):
+                    for env_idx in range(1, num):
                         out_fd.write(
-                            f'+ DCI_QUEUE{idx}={os.environ[f"DCI_QUEUE{idx}"]}\n'
+                            f'+ DCI_QUEUE{env_idx}={os.environ[f"DCI_QUEUE{env_idx}"]}\n'
                         )
                         out_fd.write(
-                            f'+ DCI_QUEUE_RES{idx}={os.environ[f"DCI_QUEUE_RES{idx}"]}\n'
+                            f'+ DCI_QUEUE_RES{env_idx}={os.environ[f"DCI_QUEUE_RES{env_idx}"]}\n'
                         )
                     out_fd.write("+ cd " + data["wd"] + "\n")
                     out_fd.write("+ " + " ".join(data["real_cmd"]) + "\n")

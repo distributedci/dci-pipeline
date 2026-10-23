@@ -24,7 +24,7 @@ readme = open(os.path.join(root_dir, "README.md")).read()
 
 setuptools.setup(
     name="dci-pipeline",
-    version="0.12.0",  # keep in sync with dci-pipeline.spec and Dockerfile
+    version="0.16.0",  # keep in sync with dci-pipeline.spec and Dockerfile
     packages=setuptools.find_packages(exclude=("tests")),
     author="Distributed CI team",
     author_email="distributed-ci@redhat.com",
@@ -49,6 +49,10 @@ setuptools.setup(
             "dci-queue=dciqueue.main:main",
             "dci-agent-ctl=dciagent.main:main",
             "dci-settings2pipeline=dciagent.main:main_s2p",
+            "dci-pipeline-lint=dcipipelinelint.main:main",
         ],
+    },
+    package_data={
+        "dcipipelinelint": ["data/*.yml"],
     },
 )
