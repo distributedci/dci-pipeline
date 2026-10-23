@@ -116,6 +116,217 @@ class TestQueue(unittest.TestCase):
         for key, exist in (("pool", True), ("available", True)):
             validate(key, exist)
 
+    @patch.dict(os.environ, {"TMUX": ""})
+    def test_linked_resources_soft_removal_and_independent_reservation(self):
+        for pool in ("A", "B"):
+            self.assertEqual(main.main(["dci-queue", "add-pool", "-n", pool]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        for child in ("a1", "a2", "a3"):
+            self.assertEqual(
+                main.main(["dci-queue", "add-resource", "B", child, "--parent", "A/a"]),
+                0,
+            )
+            self.assertEqual(lib.get_parent(self.queue_dir, "B", child), ("A", "a"))
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "B", "a3", "reserved"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "A", "a", "redeploy"]), 0
+        )
+        for child in ("a1", "a2"):
+            reason = lib.read_reason(self.queue_dir, "B", child)
+            self.assertEqual(reason["reason"], "redeploy")
+            self.assertTrue(reason["removed_by_parent"])
+            self.doesnt_exist("available", "B", child)
+        self.assertEqual(
+            lib.read_reason(self.queue_dir, "B", "a3")["reason"], "reserved"
+        )
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        for child in ("a1", "a2"):
+            self.link_exists("pool", "B", child)
+            self.link_exists("available", "B", child)
+            self.doesnt_exist("reason", "B", child)
+        self.doesnt_exist("pool", "B", "a3")
+        self.assertEqual(main.main(["dci-queue", "add-resource", "B", "a3"]), 0)
+        self.link_exists("available", "B", "a3")
+        self.assertEqual(lib.get_parent(self.queue_dir, "B", "a3"), ("A", "a"))
+
+    @patch.dict(os.environ, {"TMUX": ""})
+    def test_force_parent_removes_independently_reserved_child(self):
+        for pool in ("A", "B"):
+            self.assertEqual(main.main(["dci-queue", "add-pool", "-n", pool]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "B", "a1", "reserved"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "-f", "A", "a", "gone"]), 0
+        )
+        for directory in ("pool", "available", "reason"):
+            self.doesnt_exist(directory, "B", "a1")
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "B", "a1"]), 0)
+        self.assertIsNone(lib.get_parent(self.queue_dir, "B", "a1"))
+
+    @patch.dict(os.environ, {"TMUX": ""})
+    def test_force_child_clears_relationship(self):
+        for pool in ("A", "B"):
+            self.assertEqual(main.main(["dci-queue", "add-pool", "-n", pool]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "-f", "B", "a1", "gone"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 0
+        )
+        self.assertEqual(lib.get_parent(self.queue_dir, "B", "a1"), ("A", "a"))
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "-f", "B", "a1", "gone"]), 0
+        )
+        self.assertEqual(main.main(["dci-queue", "add-resource", "B", "a1"]), 0)
+        self.assertIsNone(lib.get_parent(self.queue_dir, "B", "a1"))
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 1
+        )
+
+    def test_linked_resource_job_environment_and_parent_booking(self):
+        for pool in ("A", "B"):
+            self.assertEqual(main.main(["dci-queue", "add-pool", "-n", pool]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 0
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(main.main(["dci-queue", "list", "A"]), 0)
+            self.assertEqual(main.main(["dci-queue", "list", "B"]), 0)
+        self.assertIn("a <- B/a1", output.getvalue())
+        self.assertIn("a1 -> A/a", output.getvalue())
+        self.assertEqual(
+            main.main(["dci-queue", "schedule", "A", "echo", "@RESOURCE"]), 0
+        )
+        self.assertEqual(main.main(["dci-queue", "run", "A"]), 0)
+        self.link_exists("available", "B", "a1")
+        command = (
+            'test "$DCI_QUEUE_PARENT" = A -a "$DCI_QUEUE_PARENT_RES" = a '
+            '-a "$DCI_QUEUE_PARENT1" = A -a "$DCI_QUEUE_PARENT_RES1" = a '
+            '&& touch "$DCI_QUEUE_DIR/parent-env-ok"; echo @RESOURCE'
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "schedule", "B", "--", "bash", "-c", command]), 0
+        )
+        self.assertEqual(main.main(["dci-queue", "run", "B"]), 0)
+        self.file_exists(".", ".", "parent-env-ok")
+
+    @patch.dict(os.environ, {"TMUX": ""})
+    def test_scheduled_parent_removal_cascades(self):
+        for pool in ("A", "B"):
+            self.assertEqual(main.main(["dci-queue", "add-pool", "-n", pool]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "schedule", "-r", "A", "echo", "@RESOURCE"]), 0
+        )
+        self.assertEqual(main.main(["dci-queue", "run", "A"]), 0)
+        self.assertEqual(
+            lib.read_reason(self.queue_dir, "B", "a1")["reason"],
+            schedule_cmd.DEFAULT_REMOVE_REASON,
+        )
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.link_exists("available", "B", "a1")
+        self.assertEqual(
+            main.main(
+                [
+                    "dci-queue",
+                    "schedule",
+                    "--force-remove-resource",
+                    "A",
+                    "echo",
+                    "@RESOURCE",
+                ]
+            ),
+            0,
+        )
+        self.assertEqual(main.main(["dci-queue", "run", "A"]), 0)
+        for directory in ("pool", "available", "reason"):
+            self.doesnt_exist(directory, "B", "a1")
+
+    @patch.dict(os.environ, {"TMUX": ""})
+    def test_parent_restoration_waits_for_running_child_booking(self):
+        for pool in ("A", "B", "jobs"):
+            self.assertEqual(main.main(["dci-queue", "add-pool", "-n", pool]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 0
+        )
+        self.assertEqual(run_cmd.book_resource(self.queue_dir, "B"), "a1")
+        executing = os.path.join(self.queue_dir, "queue", "jobs", "1.exec")
+        with open(executing, "w") as fd:
+            json.dump({"booked": [["a1", "B"]]}, fd)
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "A", "a", "redeploy"]), 0
+        )
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.link_exists("pool", "B", "a1")
+        self.doesnt_exist("available", "B", "a1")
+        os.unlink(executing)
+        run_cmd.free_resource("a1", self.queue_dir, "B")
+        self.link_exists("available", "B", "a1")
+
+    def test_linked_resource_requires_present_parent_for_booking(self):
+        for pool in ("A", "B"):
+            self.assertEqual(main.main(["dci-queue", "add-pool", "-n", pool]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 1
+        )
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 0
+        )
+        os.unlink(lib.resource_path(self.queue_dir, "A", "a"))
+        self.assertFalse(run_cmd.has_available_resource(self.queue_dir, "B"))
+        self.assertIsNone(run_cmd.book_resource(self.queue_dir, "B"))
+
+    def test_linked_extra_pool_resource_exposes_parent(self):
+        for pool in ("A", "B", "jobs"):
+            self.assertEqual(main.main(["dci-queue", "add-pool", "-n", pool]), 0)
+        self.assertEqual(main.main(["dci-queue", "add-resource", "A", "a"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "B", "a1", "--parent", "A/a"]), 0
+        )
+        self.assertEqual(main.main(["dci-queue", "add-resource", "jobs", "j"]), 0)
+        command = (
+            'test -z "$DCI_QUEUE_PARENT" -a "$DCI_QUEUE_PARENT2" = A '
+            '-a "$DCI_QUEUE_PARENT_RES2" = a '
+            '&& touch "$DCI_QUEUE_DIR/extra-parent-ok"; echo @RESOURCE'
+        )
+        self.assertEqual(
+            main.main(
+                [
+                    "dci-queue",
+                    "schedule",
+                    "-e",
+                    "B",
+                    "jobs",
+                    "--",
+                    "bash",
+                    "-c",
+                    command,
+                ]
+            ),
+            0,
+        )
+        self.assertEqual(main.main(["dci-queue", "run", "jobs"]), 0)
+        self.file_exists(".", ".", "extra-parent-ok")
+
     def test_remove_resource(self):
         self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
         self.assertEqual(

@@ -79,6 +79,9 @@ _dci_queue() {
             add-pool)
                 opts="-n --no-install"
                 ;;
+            add-resource)
+                opts="--parent"
+                ;;
             remove-pool)
                 opts="-n --no-uninstall"
                 ;;
