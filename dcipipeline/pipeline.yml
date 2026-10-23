@@ -28,7 +28,7 @@
         - build:dev
         - build:nightly
       max_age: 1
-    - "ose-tests?tags:ocp-vanilla-4.8-ok,build:dev&version:20200628"
+    - "ose-tests?tags:ocp-vanilla-4.8-ok&version:20200628"
     - "cnf-tests?version:20200728"
   comment: debugging comment
   success_tag: ocp-vanilla-4.8-simple-ok
