@@ -45,32 +45,41 @@ def register_command(subparsers):
 
 
 def execute_command(args):
-    if not lib.check_pool(args.top_dir, args.pool):
-        log.error("Pool %s does not exist" % args.pool)
+    return remove_resource(
+        args.top_dir, args.pool, args.name, args.reason, force=args.force
+    )
+
+
+def remove_resource(top_dir, pool, name, reason, force=False):
+    if not lib.check_pool(top_dir, pool):
+        log.error("Pool %s does not exist" % pool)
         return 1
 
-    log.info(
-        "Removing resource %s from pool %s (reason: %s)"
-        % (args.name, args.pool, args.reason)
-    )
+    if not force and (not isinstance(reason, str) or not reason.strip()):
+        msg = "A non-empty reason is required to remove a resource."
+        log.error(msg)
+        print(msg, file=sys.stderr)
+        return 1
+
+    log.info("Removing resource %s from pool %s (reason: %s)" % (name, pool, reason))
 
     # if we are trying to remove a resource that does not exist, but not forcing the
     # removal of the resource, then exit
-    path = os.path.join(args.top_dir, "pool", args.pool, args.name)
-    if not (os.path.exists(path) or args.force):
-        msg = "Trying to remove resource %s that does not exist." % (args.name,)
+    path = os.path.join(top_dir, "pool", pool, name)
+    if not (os.path.exists(path) or force):
+        msg = "Trying to remove resource %s that does not exist." % (name,)
         log.error(msg)
         print(msg, file=sys.stderr)
         return 1
 
     # this step is common when forcing and not forcing the removal
     for key in ("available", "pool"):
-        path = os.path.join(args.top_dir, key, args.pool, args.name)
+        path = os.path.join(top_dir, key, pool, name)
         if os.path.exists(path) or os.path.islink(path):
-            log.debug("Removing %s (%s)" % (path, args.reason))
+            log.debug("Removing %s (%s)" % (path, reason))
             os.unlink(path)
 
-    dir = os.path.join(args.top_dir, "reason", args.pool)
+    dir = os.path.join(top_dir, "reason", pool)
     try:
         os.makedirs(dir)
     except OSError as e:
@@ -79,8 +88,8 @@ def execute_command(args):
         else:
             raise
 
-    path = os.path.join(args.top_dir, "reason", args.pool, args.name)
-    if args.force:
+    path = os.path.join(top_dir, "reason", pool, name)
+    if force:
         # files under available and pool directories have already been removed
         # if present
         # now, just check if the resource is already blocked, to remove it from
@@ -106,9 +115,9 @@ def execute_command(args):
     with open(path, "w") as f:
         json.dump(
             {
-                "reason": prefix + args.reason,
-                "pool": args.pool,
-                "resource": args.name,
+                "reason": prefix + reason,
+                "pool": pool,
+                "resource": name,
                 "date": str(datetime.datetime.now()),
             },
             f,

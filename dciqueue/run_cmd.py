@@ -21,7 +21,7 @@ import os
 import subprocess
 import sys
 
-from dciqueue import lib
+from dciqueue import lib, remove_resource_cmd
 
 if sys.version_info[0] == 2:
     FileNotFoundError = OSError
@@ -51,6 +51,7 @@ def execute_command(args):
         return 1
 
     commands = []
+    removal_failed = False
     skipped_jobs = set()  # Track jobs that have been skipped to avoid infinite loop
 
     while True:
@@ -120,11 +121,22 @@ def execute_command(args):
             data["jobid"] = idx
             data["booked"] = booked_resources
 
-            if "remove" in data and data["remove"]:
-                log.info("Removing resource %s" % res)
-                path = os.path.join(args.top_dir, "pool", args.pool, res)
-                if os.path.exists(path):
-                    os.unlink(path)
+            if data.get("remove"):
+                reason = data.get("remove_reason")
+                if remove_resource_cmd.remove_resource(
+                    args.top_dir,
+                    args.pool,
+                    res,
+                    reason if reason is not None else "",
+                    force=reason is None,
+                ):
+                    log.error(
+                        "Unable to remove resource %s from pool %s", res, args.pool
+                    )
+                    free_resources(booked_resources, args.top_dir)
+                    os.remove(to_exec)
+                    removal_failed = True
+                    continue
 
             with open(to_exec, "w") as f:
                 json.dump(data, f)
@@ -205,7 +217,7 @@ def execute_command(args):
                     pass
             if booked != [] and args:
                 free_resources(booked, args.top_dir)
-    return 0
+    return 1 if removal_failed else 0
 
 
 def book_resource(top_dir, pool):

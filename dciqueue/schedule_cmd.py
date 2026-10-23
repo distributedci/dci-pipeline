@@ -29,6 +29,7 @@ if sys.version_info[0] == 2:
 log = logging.getLogger(__name__)
 
 COMMAND = "schedule"
+DEFAULT_REMOVE_REASON = "Removed by scheduled job"
 
 
 def register_command(subparsers):
@@ -51,11 +52,17 @@ def register_command(subparsers):
         action="store_true",
         help="Force the command to be scheduled even if it's duplicated",
     )
-    parser.add_argument(
+    removal = parser.add_mutually_exclusive_group()
+    removal.add_argument(
         "-r",
         "--remove-resource",
         action="store_true",
-        help="Remove the resource once the job starts",
+        help="Remove the resource with a default reason once the job starts",
+    )
+    removal.add_argument(
+        "--force-remove-resource",
+        action="store_true",
+        help="Remove the resource fully from the pool, once the job starts",
     )
     parser.add_argument(
         "-p",
@@ -74,6 +81,9 @@ def register_command(subparsers):
 def execute_command(args):
     if not lib.check_pool(args.top_dir, args.pool):
         return 1
+
+    remove = args.remove_resource or args.force_remove_resource
+    remove_reason = DEFAULT_REMOVE_REASON if args.remove_resource else None
 
     for c in args.cmd:
         if "@RESOURCE" in c:
@@ -98,7 +108,12 @@ def execute_command(args):
                     os.path.join(args.top_dir, "queue", args.pool, cmdfile), "r"
                 ) as f:
                     data = json.load(f)
-                if data["cmd"] == args.cmd and data["wd"] == os.getcwd():
+                if (
+                    data["cmd"] == args.cmd
+                    and data["wd"] == os.getcwd()
+                    and data.get("remove", False) == remove
+                    and data.get("remove_reason") == remove_reason
+                ):
                     found = True
                     break
             except FileNotFoundError:
@@ -120,7 +135,8 @@ def execute_command(args):
                 {
                     "cmd": args.cmd,
                     "wd": cwd,
-                    "remove": args.remove_resource,
+                    "remove": remove,
+                    "remove_reason": remove_reason,
                     "priority": args.priority,
                     "extra_pools": args.extra_pool,
                 },
@@ -134,7 +150,8 @@ def execute_command(args):
     if args.block:
         log.info("In block mode, running the queue from pool %s" % args.pool)
         while True:
-            run_cmd.execute_command(args)
+            if run_cmd.execute_command(args):
+                return 1
             if os.path.exists(queuefile):
                 log.debug("Command not executed. Sleeping 10s.")
                 time.sleep(10)

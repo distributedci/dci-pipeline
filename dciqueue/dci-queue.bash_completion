@@ -71,7 +71,7 @@ _dci_queue() {
                 opts="-f --follow -n --lines"
                 ;;
             schedule)
-                opts="-b --block -C --command-output -f --force -r --remove-resource -p --priority -e --extra-pool"
+                opts="-b --block -C --command-output -f --force -r --remove-resource --force-remove-resource -p --priority -e --extra-pool"
                 ;;
             run)
                 opts="-C --command-output"
