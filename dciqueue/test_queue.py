@@ -814,6 +814,17 @@ class TestQueue(unittest.TestCase):
         self.assertEqual(self.arg, "less")
         os.execlp = saved
 
+    @patch("dciqueue.log_cmd.time.sleep", side_effect=KeyboardInterrupt)
+    def test_log_interrupt_while_waiting(self, _sleep):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "schedule", "8nodes", "echo", "@RESOURCE"]), 0
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "log", "-f", "8nodes", "1"]),
+            130,
+        )
+
     def test_search(self):
         self.assertEqual(main.main(["dci-queue", "log", "8nodes", "1"]), 1)
         self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)

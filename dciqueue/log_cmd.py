@@ -55,8 +55,11 @@ def execute_command(args):
             log.error("No such file %s" % logfile)
             return 1
         sys.stderr.write(("Waiting for command %s to start...\n" % args.id))
-        while not os.path.exists(logfile):
-            time.sleep(1)
+        try:
+            while not os.path.exists(logfile):
+                time.sleep(1)
+        except KeyboardInterrupt:
+            return 130
 
     if args.follow or args.lines:
         cmd = "tail"
