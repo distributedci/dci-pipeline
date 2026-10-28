@@ -61,67 +61,66 @@ def remove_resource(top_dir, pool, name, reason, force=False):
         print(msg, file=sys.stderr)
         return 1
 
-    log.info("Removing resource %s from pool %s (reason: %s)" % (name, pool, reason))
+    with lib.resource_lock(top_dir):
+        return _remove_resource(top_dir, pool, name, reason, force)
 
-    # if we are trying to remove a resource that does not exist, but not forcing the
-    # removal of the resource, then exit
-    path = os.path.join(top_dir, "pool", pool, name)
-    if not (os.path.exists(path) or force):
-        msg = "Trying to remove resource %s that does not exist." % (name,)
+
+def _remove_resource(top_dir, pool, name, reason, force=False, removed_by_parent=False):
+    """Remove a resource and its children while holding the resource lock."""
+    path = lib.resource_path(top_dir, pool, name)
+    if not force and not os.path.exists(path):
+        msg = "Trying to remove resource %s that does not exist." % name
         log.error(msg)
         print(msg, file=sys.stderr)
         return 1
 
-    # this step is common when forcing and not forcing the removal
+    children = lib.children_of(top_dir, pool, name)
+    parent = lib.get_parent(top_dir, pool, name)
+
+    if not force and not removed_by_parent:
+        prefix = ""
+        if os.environ.get("TMUX"):
+            prefix = subprocess.check_output(
+                "tmux display-message -p '#S: '||:",
+                stderr=subprocess.DEVNULL,
+                shell=True,
+                universal_newlines=True,
+            ).strip("\n")
+        reason = prefix + reason
+
+    for child_pool, child in children:
+        # An independently reserved child stays reserved on soft removal.
+        if force or not lib.read_reason(top_dir, child_pool, child):
+            _remove_resource(top_dir, child_pool, child, reason, force, not force)
+
     for key in ("available", "pool"):
-        path = os.path.join(top_dir, key, pool, name)
-        if os.path.exists(path) or os.path.islink(path):
-            log.debug("Removing %s (%s)" % (path, reason))
-            os.unlink(path)
+        entry = os.path.join(top_dir, key, pool, name)
+        if os.path.lexists(entry):
+            os.unlink(entry)
 
-    dir = os.path.join(top_dir, "reason", pool)
+    reason_dir = os.path.join(top_dir, "reason", pool)
     try:
-        os.makedirs(dir)
+        os.makedirs(reason_dir)
     except OSError as e:
-        if e.errno == errno.EEXIST:
-            pass
-        else:
+        if e.errno != errno.EEXIST:
             raise
-
-    path = os.path.join(top_dir, "reason", pool, name)
+    reason_path = lib.reason_path(top_dir, pool, name)
     if force:
-        # files under available and pool directories have already been removed
-        # if present
-        # now, just check if the resource is already blocked, to remove it from
-        # the blocked resources (reason directory), then finish the execution
-        if os.path.exists(path):
-            log.debug("Removing reason file %s" % path)
-            os.unlink(path)
-        return 0
-
-    # if we're not forcing the removal of the resource, just move it to the
-    # removed resources including the reason of the removal if provided
-    # Use tmux session name as a prefix if any
-    prefix = ""
-    if os.environ.get("TMUX"):
-        prefix = subprocess.check_output(
-            "tmux display-message -p '#S: '||:",
-            stderr=subprocess.DEVNULL,
-            shell=True,
-            universal_newlines=True,
-        ).strip("\n")
-
-    log.debug("Writing reason file %s" % path)
-    with open(path, "w") as f:
-        json.dump(
-            {
-                "reason": prefix + reason,
-                "pool": pool,
-                "resource": name,
-                "date": str(datetime.datetime.now()),
-            },
-            f,
-        )
+        if os.path.exists(reason_path):
+            os.unlink(reason_path)
+    else:
+        data = {
+            "reason": reason,
+            "pool": pool,
+            "resource": name,
+            "date": str(datetime.datetime.now()),
+        }
+        if parent:
+            data["parent"] = {"pool": parent[0], "resource": parent[1]}
+        if removed_by_parent:
+            data["removed_by_parent"] = True
+        with open(reason_path, "w") as fd:
+            json.dump(data, fd)
 
     return 0
 

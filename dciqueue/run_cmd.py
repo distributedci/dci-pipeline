@@ -88,38 +88,51 @@ def execute_command(args):
                 skipped_jobs.add(idx)
                 continue
 
-            # Now book the primary resource
-            res = book_resource(args.top_dir, args.pool)
-
-            if res is None:
-                log.debug("No available resource anymore in pool %s" % args.pool)
-                break
-            log.debug("Booked resource %s in pool %s" % (res, args.pool))
-            booked_resources.append((res, args.pool))
-
-            # Now consume the job from the queue
-            to_exec, idx = get_command(args)
-
-            # book extra resources if needed
-            extra_booking_failed = False
-            for pool in data["extra_pools"]:
-                extra_res = book_resource(args.top_dir, pool)
-                if extra_res is None:
-                    log.debug("No available resource anymore in pool %s" % pool)
-                    free_resources(booked_resources, args.top_dir)
-                    extra_booking_failed = True
+            # Keep booking and its .exec record together. Parent removal cannot
+            # restore a child between taking its link and recording its booking.
+            with lib.resource_lock(args.top_dir):
+                res = _book_resource(args.top_dir, args.pool)
+                if res is None:
+                    log.debug("No available resource anymore in pool %s" % args.pool)
                     break
-                booked_resources.append((extra_res, pool))
+                booked_resources.append((res, args.pool))
 
-            # If extra resource booking failed, skip this job and continue to next
+                extra_booking_failed = False
+                for pool in data["extra_pools"]:
+                    extra_res = _book_resource(args.top_dir, pool)
+                    if extra_res is None:
+                        log.debug("No available resource anymore in pool %s" % pool)
+                        for name, booked_pool in booked_resources:
+                            lib.make_available(args.top_dir, booked_pool, name)
+                        extra_booking_failed = True
+                        break
+                    booked_resources.append((extra_res, pool))
+
+                if not extra_booking_failed:
+                    to_exec, command_idx = get_command(args, expected_idx=idx)
+                    if to_exec is None:
+                        for name, booked_pool in booked_resources:
+                            lib.make_available(args.top_dir, booked_pool, name)
+                    else:
+                        idx = command_idx
+                        data["real_cmd"] = [
+                            c.replace("@RESOURCE", res) for c in data["cmd"]
+                        ]
+                        data["resource"] = res
+                        data["jobid"] = idx
+                        data["booked"] = booked_resources
+                        parents = [
+                            lib.get_parent(args.top_dir, pool, name)
+                            for name, pool in booked_resources
+                        ]
+                        with open(to_exec, "w") as f:
+                            json.dump(data, f)
+
             if extra_booking_failed:
-                log.debug("Skipping job due to failed extra resource booking")
+                skipped_jobs.add(idx)
                 continue
-
-            data["real_cmd"] = [c.replace("@RESOURCE", res) for c in data["cmd"]]
-            data["resource"] = res
-            data["jobid"] = idx
-            data["booked"] = booked_resources
+            if to_exec is None:
+                continue
 
             if data.get("remove"):
                 reason = data.get("remove_reason")
@@ -135,61 +148,80 @@ def execute_command(args):
                     )
                     free_resources(booked_resources, args.top_dir)
                     os.remove(to_exec)
+                    free_resources(booked_resources, args.top_dir)
                     removal_failed = True
                     continue
 
-            with open(to_exec, "w") as f:
-                json.dump(data, f)
-
+            out_fd = None
             try:
                 log.info("Running command %s (wd: %s)" % (data["cmd"], data["wd"]))
                 os.chdir(data["wd"])
-                os.environ["DCI_QUEUE"] = args.pool
-                os.environ["DCI_QUEUE_RES"] = res
-                os.environ["DCI_QUEUE_ID"] = str(idx)
-                os.environ["DCI_QUEUE_JOBID"] = "%s.%d" % (args.pool, idx)
+                job_env = os.environ.copy()
+                job_env["DCI_QUEUE"] = args.pool
+                job_env["DCI_QUEUE_RES"] = res
+                job_env["DCI_QUEUE_ID"] = str(idx)
+                job_env["DCI_QUEUE_JOBID"] = "%s.%d" % (args.pool, idx)
+                for key in list(job_env):
+                    if key.startswith("DCI_QUEUE_PARENT"):
+                        del job_env[key]
                 num = 1
-                for r, p in booked_resources:
-                    os.environ[f"DCI_QUEUE{num}"] = p
-                    os.environ[f"DCI_QUEUE_RES{num}"] = r
+                for (r, p), parent in zip(booked_resources, parents):
+                    job_env[f"DCI_QUEUE{num}"] = p
+                    job_env[f"DCI_QUEUE_RES{num}"] = r
+                    if parent:
+                        job_env[f"DCI_QUEUE_PARENT{num}"] = parent[0]
+                        job_env[f"DCI_QUEUE_PARENT_RES{num}"] = parent[1]
+                        if num == 1:
+                            job_env["DCI_QUEUE_PARENT"] = parent[0]
+                            job_env["DCI_QUEUE_PARENT_RES"] = parent[1]
                     num += 1
                 if not args.command_output:
                     out_fd = open(
                         os.path.join(args.top_dir, "log", args.pool, str(idx)), "w"
                     )
                     # log environment variables
-                    out_fd.write(f'+ DCI_QUEUE={os.environ["DCI_QUEUE"]}\n')
-                    out_fd.write(f'+ DCI_QUEUE_RES={os.environ["DCI_QUEUE_RES"]}\n')
-                    out_fd.write(f'+ DCI_QUEUE_ID={os.environ["DCI_QUEUE_ID"]}\n')
-                    out_fd.write(f'+ DCI_QUEUE_JOBID={os.environ["DCI_QUEUE_JOBID"]}\n')
+                    out_fd.write(f'+ DCI_QUEUE={job_env["DCI_QUEUE"]}\n')
+                    out_fd.write(f'+ DCI_QUEUE_RES={job_env["DCI_QUEUE_RES"]}\n')
+                    out_fd.write(f'+ DCI_QUEUE_ID={job_env["DCI_QUEUE_ID"]}\n')
+                    out_fd.write(f'+ DCI_QUEUE_JOBID={job_env["DCI_QUEUE_JOBID"]}\n')
                     for env_idx in range(1, num):
                         out_fd.write(
-                            f'+ DCI_QUEUE{env_idx}={os.environ[f"DCI_QUEUE{env_idx}"]}\n'
+                            f'+ DCI_QUEUE{env_idx}={job_env[f"DCI_QUEUE{env_idx}"]}\n'
                         )
                         out_fd.write(
-                            f'+ DCI_QUEUE_RES{env_idx}={os.environ[f"DCI_QUEUE_RES{env_idx}"]}\n'
+                            f'+ DCI_QUEUE_RES{env_idx}={job_env[f"DCI_QUEUE_RES{env_idx}"]}\n'
                         )
+                        if f"DCI_QUEUE_PARENT{env_idx}" in job_env:
+                            parent_pool = job_env[f"DCI_QUEUE_PARENT{env_idx}"]
+                            parent_res = job_env[f"DCI_QUEUE_PARENT_RES{env_idx}"]
+                            out_fd.write(f"+ DCI_QUEUE_PARENT{env_idx}={parent_pool}\n")
+                            out_fd.write(
+                                f"+ DCI_QUEUE_PARENT_RES{env_idx}={parent_res}\n"
+                            )
                     out_fd.write("+ cd " + data["wd"] + "\n")
                     out_fd.write("+ " + " ".join(data["real_cmd"]) + "\n")
                     out_fd.flush()
                     proc = subprocess.Popen(
-                        data["real_cmd"], stdout=out_fd, stderr=out_fd
+                        data["real_cmd"], stdout=out_fd, stderr=out_fd, env=job_env
                     )
                 else:
                     out_fd = None
-                    proc = subprocess.Popen(data["real_cmd"])
+                    proc = subprocess.Popen(data["real_cmd"], env=job_env)
                 if proc:
                     data["pid"] = proc.pid
                     commands.append(
                         [booked_resources, proc, out_fd, data["real_cmd"], idx, to_exec]
                     )
-                with open(to_exec, "w") as f:
-                    json.dump(data, f)
+                with lib.resource_lock(args.top_dir):
+                    with open(to_exec, "w") as f:
+                        json.dump(data, f)
             except Exception:
                 log.exception("Unable to execute command")
-                free_resources(booked_resources, args.top_dir)
+                if out_fd:
+                    out_fd.close()
                 log.debug("Removing %s" % to_exec)
                 os.remove(to_exec)
+                free_resources(booked_resources, args.top_dir)
 
     if commands != []:
         log.info("Waiting for commands: %s" % commands)
@@ -225,31 +257,29 @@ def book_resource(top_dir, pool):
 
     Removing the first symlink from the available directory.
     """
-    available_dir = os.path.join(top_dir, "available", pool)
-    resources = [
-        f
-        for f in os.listdir(available_dir)
-        if os.path.islink(os.path.join(available_dir, f))
-    ]
+    with lib.resource_lock(top_dir):
+        return _book_resource(top_dir, pool)
 
-    for res in resources:
-        try:
-            filename = os.path.join(available_dir, res)
-            os.remove(filename)
-            log.debug("Removed symlink %s" % filename)
+
+def _book_resource(top_dir, pool):
+    """Book a resource while holding the resource lock."""
+    available_dir = os.path.join(top_dir, "available", pool)
+    for res in os.listdir(available_dir):
+        filename = os.path.join(available_dir, res)
+        if os.path.islink(filename) and os.path.exists(filename):
+            os.unlink(filename)
             return res
-        except FileNotFoundError:
-            continue
     return None
 
 
 def free_resource(res, top_dir, pool):
-    path = os.path.join(top_dir, "pool", pool, res)
-    # do not symlink if the resource has been removed during run
-    if os.path.exists(path):
-        symlink = os.path.join(top_dir, "available", pool, res)
-        log.debug("Creating symlink %s from pid %s" % (symlink, os.getpid()))
-        os.symlink(path, symlink)
+    try:
+        with lib.resource_lock(top_dir):
+            lib.make_available(top_dir, pool, res)
+    except FileNotFoundError:
+        # The queue itself may have been removed while a job was finishing.
+        if os.path.isdir(top_dir):
+            raise
 
 
 def free_resources(resources, top_dir):
@@ -299,11 +329,12 @@ def has_available_resource(top_dir, pool):
         f
         for f in os.listdir(available_dir)
         if os.path.islink(os.path.join(available_dir, f))
+        and os.path.exists(os.path.join(available_dir, f))
     ]
     return len(resources) > 0
 
 
-def get_command(args):
+def get_command(args, expected_idx=None):
     """Get the next command to execute from the queue."""
     seq = lib.Seq(args)
 
@@ -313,18 +344,23 @@ def get_command(args):
     to_exec = None
     index = None
     pri = -1
-    # first pass to find the highest priority job
-    for idx in range(first, next):
-        cmdfile = os.path.join(args.top_dir, "queue", args.pool, str(idx))
+    if expected_idx is not None:
+        cmdfile = os.path.join(args.top_dir, "queue", args.pool, str(expected_idx))
         if os.path.exists(cmdfile):
-            log.debug("getting priority for %s" % cmdfile)
-            with open(cmdfile) as cmdfd:
-                data = json.load(cmdfd)
-                priority = data["priority"] if "priority" in data else 0
-                if priority > pri:
-                    log.debug("top priority so far %s => %d" % (cmdfile, priority))
-                    index = idx
-                    pri = priority
+            index = expected_idx
+    else:
+        # first pass to find the highest priority job
+        for idx in range(first, next):
+            cmdfile = os.path.join(args.top_dir, "queue", args.pool, str(idx))
+            if os.path.exists(cmdfile):
+                log.debug("getting priority for %s" % cmdfile)
+                with open(cmdfile) as cmdfd:
+                    data = json.load(cmdfd)
+                    priority = data["priority"] if "priority" in data else 0
+                    if priority > pri:
+                        log.debug("top priority so far %s => %d" % (cmdfile, priority))
+                        index = idx
+                        pri = priority
     if index is not None:
         cmdfile = os.path.join(args.top_dir, "queue", args.pool, str(index))
         movedfile = cmdfile + EXT
