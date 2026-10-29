@@ -327,6 +327,24 @@ class TestQueue(unittest.TestCase):
         self.assertEqual(main.main(["dci-queue", "run", "jobs"]), 0)
         self.file_exists(".", ".", "extra-parent-ok")
 
+    @patch.dict(os.environ, {"TMUX": ""})
+    def test_add_resource_with_stray_file_in_queue_dir(self):
+        self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "8nodes", "cluster4"]), 0
+        )
+        # a stray file directly under queue/ must not break resource scans
+        open(os.path.join(self.queue_dir, "queue", ".seq.lck"), "w").close()
+        self.assertEqual(
+            main.main(["dci-queue", "remove-resource", "8nodes", "cluster4", "test"]),
+            0,
+        )
+        self.assertEqual(
+            main.main(["dci-queue", "add-resource", "8nodes", "cluster4"]), 0
+        )
+        self.link_exists("available", "8nodes", "cluster4")
+        self.doesnt_exist("reason", "8nodes", "cluster4")
+
     def test_remove_resource(self):
         self.assertEqual(main.main(["dci-queue", "add-pool", "-n", "8nodes"]), 0)
         self.assertEqual(

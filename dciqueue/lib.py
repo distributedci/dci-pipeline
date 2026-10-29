@@ -93,6 +93,8 @@ def resource_in_use(top_dir, pool, name):
     queue_root = os.path.join(top_dir, "queue")
     for command_pool in os.listdir(queue_root):
         queue_dir = os.path.join(queue_root, command_pool)
+        if not os.path.isdir(queue_dir):
+            continue
         for filename in os.listdir(queue_dir):
             if not filename.endswith(".exec"):
                 continue
