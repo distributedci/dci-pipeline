@@ -138,6 +138,33 @@ if [ -z "$OPT" ]; then
     exit 1
 fi
 
+# check that at least one pipeline name is specified (not only -p
+# <pool name> or <pipeline var> arguments)
+has_pipeline=
+skip_next=
+for arg in "${OPT[@]}"; do
+    if [ -n "$skip_next" ]; then
+        skip_next=
+        continue
+    fi
+    case "$arg" in
+        -p)
+            skip_next=1
+            ;;
+        *:*|-*)
+            ;;
+        *)
+            has_pipeline=1
+            break
+            ;;
+    esac
+done
+
+if [ -z "$has_pipeline" ]; then
+    echo "no specified pipeline" 1>&2
+    exit 1
+fi
+
 case $CHANGEID in
     https://*)
         PR=$(sed -e 's@.*github.com/.*/\([^/]*\)/pull/\([0-9]*\)@\1-pr\2@' <<< $CHANGEID)
@@ -304,6 +331,7 @@ else
     for cluster_name in "${cluster_names[@]}"; do
         INV=$("$BASEDIR/yaml2json$SUFFIX" "$first_pipeline" | jq -r '.[0].ansible_inventory' | \
             sed -e "s/@QUEUE/$QUEUE/" -e "s/@RESOURCE/${cluster_name}/" -e "s@^~/@${HOME}/@")
+        INV=$(resolve_inventory_path "$INV")
         if [ -f "$INV" ]; then
             RES=${cluster_name}
             break
