@@ -74,7 +74,9 @@ cp ../python-dciauth/dist/* dist/
 
 if [[ -n "$QUAY_EXPIRATION" ]]; then
 	# Make snapshot/dev builds auto-expire in Quay registries
-	echo "LABEL quay.expires-after=7d" >> Dockerfile
+	if ! grep -q '^LABEL quay.expires-after=' Dockerfile; then
+		echo "LABEL quay.expires-after=$QUAY_EXPIRATION" >> Dockerfile
+	fi
 fi
 podman build -t "$TAG" .
 
