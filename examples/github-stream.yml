@@ -20,9 +20,12 @@
 # dci-pipeline-check.
 #
 # Rule order: the repositories are matched in the order of this file
-# against <org>/<repo> (regular expression, first match wins), then the
-# rules of the repository are evaluated in order and the first matching
-# rule is applied, unless it sets "continue: true".
+# against the whole <org>/<repo> name (regular expression, first match
+# wins), then the rules of the repository are evaluated in order and the
+# first matching rule is applied, unless it sets "continue: true".
+#
+# Only the "created" action of an issue_comment event triggers anything:
+# editing or deleting a comment never launches a job.
 
 # Default authorization: a sender must be a member of one of these
 # organizations, or a collaborator of the repository when

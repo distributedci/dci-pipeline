@@ -278,6 +278,26 @@ def test_parse_event_accepts_bytes():
     assert event["body"] == "/dci-rerun"
 
 
+def test_parse_event_skips_edited_and_deleted_comments():
+    for action in ("edited", "deleted"):
+        payload = comment_payload(body="/dci-rerun", action=action)
+        assert github_stream.parse_event(json.dumps(payload)) is None
+
+
+def test_edited_comment_does_not_dispatch_a_job(tmp_path):
+    text = "hint_command: ['true']\n" + SIMPLE_CONFIG
+    path = write_config(tmp_path, text)
+    client = FakeClient()
+    runner = FakeRunner()
+    events = [
+        json.dumps(comment_payload(body="/dci-rerun", action=action))
+        for action in ("edited", "deleted")
+    ]
+    github_stream.process_stream(events, str(path), client, runner, FakeAuth())
+    assert runner.calls == []
+    assert client.calls == []
+
+
 #
 # AC3: strict configuration
 #
@@ -389,22 +409,36 @@ repos: {}
     assert "expected a list" in str(excinfo.value)
 
 
-def test_config_rejects_unknown_template_variable(tmp_path):
+def test_config_accepts_at_tokens_that_are_not_templates(tmp_path):
     text = """
 commands:
-  bad: echo @nope
+  digest: podman pull quay.io/x/y@sha256:abc123
+  email: git -c user.email=ci@redhat.com commit -m @url
 repos:
   "dci-labs/grout":
     voting: false
     rules:
       - name: recheck
         action: run
-        command: bad
+        command: digest
+      - name: mail
+        action: run
+        command: email
 """
-    path = write_config(tmp_path, text)
-    with pytest.raises(github_stream.ConfigError) as excinfo:
-        github_stream.load_config(str(path))
-    assert "unknown template variable @nope" in str(excinfo.value)
+    config = github_stream.load_config(str(write_config(tmp_path, text)))
+    commands = config.repos[0].commands
+    assert commands["digest"] == "podman pull quay.io/x/y@sha256:abc123"
+    assert commands["email"].startswith("git -c user.email=ci@redhat.com")
+
+
+def test_render_only_expands_the_known_variables():
+    event = {"url": "u", "sha": "deadbeef", "org": "dci-labs"}
+    rendered = github_stream.render(
+        "pull quay.io/x/y@sha256:abc && echo @sha @org @nope ci@redhat.com", event
+    )
+    assert rendered == (
+        "pull quay.io/x/y@sha256:abc && echo deadbeef dci-labs @nope ci@redhat.com"
+    )
 
 
 def test_config_accepts_pass_through_variables(tmp_path):
@@ -615,6 +649,40 @@ repos:
     assert engine.find_repo(
         make_event(comment_payload(repo="dci-labs/grout"))
     ).pattern == ("dci-labs/grout")
+
+
+def test_repository_keys_must_match_the_whole_name(tmp_path):
+    text = """
+repos:
+  "dci-labs/grout":
+    voting: false
+    rules:
+      - name: recheck
+        action: ignore
+  "(dci-labs|distributedci)/.*":
+    skip: true
+"""
+    engine, _, _, _ = build(tmp_path, text)
+    # "dci-labs/grout" must not capture "dci-labs/grout-config"
+    assert engine.find_repo(
+        make_event(comment_payload(repo="dci-labs/grout-config"))
+    ).skip
+    # nor the same repository name in another organization
+    assert engine.find_repo(make_event(comment_payload(repo="someone-else/grout"))) is None
+
+
+def test_reference_example_reaches_the_second_repository():
+    path = ROOT / "examples" / "github-stream.yml"
+    config = github_stream.load_config(str(path))
+    engine = github_stream.Engine(config, FakeClient(), FakeRunner(), FakeAuth())
+    # "dci-labs/example" must not capture "dci-labs/example-bis"
+    assert (
+        engine.find_repo({"repo": "dci-labs/example"}).pattern == "dci-labs/example"
+    )
+    assert (
+        engine.find_repo({"repo": "dci-labs/example-bis"}).pattern
+        == "dci-labs/example-bis"
+    )
 
 
 #
@@ -937,6 +1005,17 @@ def test_auth_resolver_collaborator():
     assert resolver.allowed(spec, "dci-labs", "grout", "mallory") is False
 
 
+def test_auth_resolver_does_not_share_the_cache_between_repositories():
+    client = FakeClient(collaborators=(("dci-labs", "grout", "alice"),))
+    resolver = github_stream.AuthResolver(client)
+    spec = github_stream.AuthSpec(collaborator=True)
+    assert resolver.allowed(spec, "dci-labs", "grout", "alice") is True
+    # same specification, other repository: the collaborator check is
+    # repository specific and must not be served from the cache.
+    assert resolver.allowed(spec, "dci-labs", "grout-config", "alice") is False
+    assert client.read_kinds().count("is_collaborator") == 2
+
+
 def test_auth_resolver_inactive_spec():
     client = FakeClient()
     resolver = github_stream.AuthResolver(client)
@@ -1007,6 +1086,56 @@ def test_pending_description_can_be_configured(tmp_path):
     engine, client, _, _ = build(tmp_path, text)
     engine.process(make_event(comment_payload(body="/dci-rerun")))
     assert client.calls == [("status", "pending", "queued for the lab")]
+
+
+def test_pending_description_is_expanded(tmp_path):
+    text = SIMPLE_CONFIG.replace(
+        "        stdin: pr_body",
+        "        stdin: pr_body\n        pending_description: waiting for @org",
+    )
+    engine, client, _, _ = build(tmp_path, text)
+    engine.process(make_event(comment_payload(body="/dci-rerun")))
+    assert client.calls == [("status", "pending", "waiting for dci-labs")]
+
+
+def test_no_status_when_a_failing_command_reported_statuses(tmp_path):
+    # a command that calls send_pending_msg and then fails must not leave a
+    # permanent pending status, but its comments are still posted.
+    runner = FakeRunner(
+        [
+            github_stream.CommandResult(
+                rc=1,
+                stderr="boom",
+                actions=(
+                    {"action": "pending", "description": "waiting for a DCI job"},
+                    {"action": "success", "description": "SUCCESS"},
+                    {"action": "comment", "description": "the lab is down"},
+                ),
+            )
+        ]
+    )
+    engine, client, _, _ = build(tmp_path, SIMPLE_CONFIG, runner=runner)
+    engine.process(make_event(comment_payload(body="/dci-rerun")))
+    assert client.calls == [("comment", COMMENTS_URL, "the lab is down")]
+
+
+def test_no_status_for_a_command_of_a_non_voting_repository(tmp_path):
+    text = SIMPLE_CONFIG.replace("voting: true", "voting: false")
+    runner = FakeRunner(
+        [
+            github_stream.CommandResult(
+                rc=0,
+                actions=(
+                    {"action": "pending", "description": "waiting for a DCI job"},
+                    {"action": "success", "description": "SUCCESS"},
+                    {"action": "comment", "description": "done"},
+                ),
+            )
+        ]
+    )
+    engine, client, _, _ = build(tmp_path, text, runner=runner)
+    engine.process(make_event(comment_payload(body="/dci-rerun")))
+    assert client.calls == [("comment", COMMENTS_URL, "done")]
 
 
 def test_unknown_action_from_a_command_is_ignored(tmp_path):
