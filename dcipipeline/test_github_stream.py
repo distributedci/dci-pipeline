@@ -668,7 +668,9 @@ repos:
         make_event(comment_payload(repo="dci-labs/grout-config"))
     ).skip
     # nor the same repository name in another organization
-    assert engine.find_repo(make_event(comment_payload(repo="someone-else/grout"))) is None
+    assert (
+        engine.find_repo(make_event(comment_payload(repo="someone-else/grout"))) is None
+    )
 
 
 def test_reference_example_reaches_the_second_repository():
@@ -676,9 +678,7 @@ def test_reference_example_reaches_the_second_repository():
     config = github_stream.load_config(str(path))
     engine = github_stream.Engine(config, FakeClient(), FakeRunner(), FakeAuth())
     # "dci-labs/example" must not capture "dci-labs/example-bis"
-    assert (
-        engine.find_repo({"repo": "dci-labs/example"}).pattern == "dci-labs/example"
-    )
+    assert engine.find_repo({"repo": "dci-labs/example"}).pattern == "dci-labs/example"
     assert (
         engine.find_repo({"repo": "dci-labs/example-bis"}).pattern
         == "dci-labs/example-bis"

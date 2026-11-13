@@ -1028,7 +1028,7 @@ spokes already reserved for their own reason stay reserved. Force removing
 `hub1` fully removes all linked spokes, including independently reserved ones.
 Soft removing a spoke saves its parent so `add-resource spoke spoke1` restores
 the link. Force removing a spoke clears its parent link; specify `--parent`
-again when readding it.
+again when re-adding it.
 
 `dci-queue list` shows parent and dependent resources. Jobs using a linked
 resource receive `DCI_QUEUE_PARENT` and `DCI_QUEUE_PARENT_RES`. For each
@@ -1128,7 +1128,7 @@ $ dci-queue add-pool parent
 $ dci-queue add-resource parent p1
 
 # Child pool
-$ dci-queue add-pool child 
+$ dci-queue add-pool child
 $ dci-queue add-resource child c1 --parent parent/p1
 $ dci-queue add-resource child c2 --parent parent/p1
 ```
