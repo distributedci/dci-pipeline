@@ -679,6 +679,199 @@ change. This will direct `dci-pipeline-check` to test in a specific way:
 - `Test-Hint: no-check` do not run a check (useful in CI mode).
 - `Test-Hint: force-check` run a check even if there is no code change (useful in CI mode).
 
+## dci-github-stream
+
+`dci-github-stream` consumes a stream of GitHub webhook payloads and
+applies the rules of a YAML configuration file to every event. It is
+meant to run next to the service receiving the webhooks, replacing a
+hand written shell loop by a tested tool with a declarative
+configuration.
+
+```ShellSession
+$ tail -F /var/log/github-stream.log | dci-github-stream --config /etc/dci-pipeline/github-stream.yml
+```
+
+The tool reads one JSON object per line on its standard input and
+ignores the lines that are not a supported event (a comment on a pull
+request or a pull request event). The configuration is reloaded for
+every event, so the rules can be changed without restarting the tool,
+and a malformed event, an API error or an invalid configuration file is
+logged without stopping the stream.
+
+The configuration file is `/etc/dci-pipeline/github-stream.yml` by
+default. Use `--config <file>` or the `GITHUB_STREAM_CONF` environment
+variable to use another one, and `--dry-run` to print the actions that
+would be sent to the GitHub API instead of calling it. The `--dry-run`
+mode does not need a token nor a network access.
+
+A complete commented example is available in `examples/github-stream.yml`.
+
+### Configuration file
+
+```YAML
+---
+auth:
+  orgs:
+    - dci-labs
+    - distributedci
+
+commands:
+  launch: dci-auto-launch @url
+  no-check: |
+    send_pending_msg "waiting for a DCI job"
+    send_success_msg "SUCCESS"
+    send_comment "no check (not a code change)"
+
+repos:
+  "dci-labs/pipelines":
+    voting: true
+    auth:
+      orgs:
+        - dci-labs
+    commands:
+      check: dci-pipeline-check @url -p my-pool
+    rules:
+      - name: dci-rerun
+        match: '(?i)^\s*/dci-rerun'
+        action: run
+        command: check
+        stdin: pr_body
+      - name: no-check
+        only_if: '^(opened|synchronize|reopened)$'
+        match_pr_body: '(?i)^\s*Test-Hints?:\s*no-check'
+        action: run
+        command: no-check
+        stdin: pr_body
+```
+
+Top level keys:
+
+- `auth`: default authorization of the senders (see below).
+- `commands`: named shell scripts referenced by the rules. A command
+  runs with `bash`, the `@` template variables are expanded, and the
+  `send_pending_msg`, `send_success_msg` and `send_comment` helpers
+  record the actions to perform once the command completed.
+- `hint_command`: command returning the handled test hint names, used by
+  the `@hints` template variable (default:
+  `dci-auto-launch --list-sections`).
+- `repos`: the repositories handled by the tool.
+
+Keys of a repository:
+
+- the key itself is a regular expression matched against the *whole*
+  `<org>/<repo>` name (`re.fullmatch` semantics), so `dci-labs/grout`
+  does not capture `dci-labs/grout-config`: use `(dci-labs|distributedci)/.*`
+  or `.*grout.*` when a pattern must match more than one name;
+  the repositories are evaluated in the order of the file and the first
+  match wins, so the catch-all entries must come last;
+- `skip`: ignore every event of the repository;
+- `skip_labels`: ignore the pull requests carrying one of these labels;
+- `voting`: post the `DCI / DCI Job` commit statuses (default: `true`);
+- `auth`: authorization of the senders, overriding the top level one;
+- `pending_description`: description of the pending status;
+- `commands`: commands of the repository, merged with the top level ones;
+- `rules`: the rules of the repository.
+
+Keys of a rule:
+
+- `name`: name of the rule, quoted in the refusal comments;
+- `action`: `run` (run a command), `comment` (post a comment) or `ignore`
+  (do nothing);
+- `command`: name of the command to run, `stdin`: `none` (default) or
+  `pr_body` to give the description of the pull request to the command;
+- `comment`: comment to post, before running the command for the `run`
+  action;
+- `continue`: keep evaluating the next rules when the rule matched
+  (default: `false`);
+- `auth`: authorization of the senders, overriding the repository one;
+- the selectors, all optional, all of them must match:
+  `match` (comment body, or description of the pull request for a pull
+  request event), `match_pr_body` (description of the pull request),
+  `no_match_pr_body`, `file_match` (files changed by the pull request),
+  `ignore_files` (files removed before `file_match` is evaluated),
+  `ignore_senders`, `only_if` (action of the event), `base_ref`,
+  `match_label`, `merged`.
+
+The regular expressions of the selectors are searched, not anchored, and
+are case insensitive by default. Use `(?i)` and `(?-i)` to change the case
+sensitivity, and `^`/`$` to anchor them. The repository keys are the
+exception: they must match the whole `<org>/<repo>` name.
+
+### Rule order
+
+For an event, the tool finds the first repository block matching the
+`<org>/<repo>` name, checks its `skip` flag and its `skip_labels`, and
+then evaluates the rules in order. The first rule whose selectors match
+is applied and the evaluation stops, unless the rule sets
+`continue: true`.
+
+### Authorization
+
+A rule that runs a command or posts a comment because of a comment on a
+pull request can require the sender to be a member of an organization
+(`auth.orgs`) or a collaborator of the repository
+(`auth.collaborator: true`). The authorization is resolved with the
+GitHub API and cached; the cache is keyed on the repository and on the
+sender, so a collaborator of one repository is never trusted on another
+one sharing the same `auth` block. Only the `created` action of an
+`issue_comment` event is handled: editing or deleting a comment never
+dispatches anything. When the sender is not allowed, a
+single comment is posted (`<sender> unauthorized to call <rule name>`)
+and nothing is launched. The authorization is not checked for the pull
+request events.
+
+### Commit statuses
+
+In a voting repository, the tool posts a `pending` status with the
+`waiting for a DCI job` description once a rule ran a command
+successfully and did not report a success itself: a check is pending
+until the DCI job reports its result. The commands can change this with
+the `send_pending_msg` and `send_success_msg` helpers, which record the
+statuses in the order they are called:
+
+```bash
+send_pending_msg "waiting for a DCI job"
+send_success_msg "SUCCESS"
+send_comment "no check (not a code change)"
+```
+
+Nothing is posted when the command failed or when the repository is not
+voting: in both cases the commit statuses recorded by the command are
+skipped, so a failing command cannot leave a permanent `pending` status
+behind. The comments recorded by the command are still posted.
+
+### Template variables
+
+The commands, the comments, the pending descriptions and the regular
+expressions are expanded with the values of the event:
+
+| Variable | Value |
+| --- | --- |
+| `@url` | URL of the pull request |
+| `@repo` | `<org>/<repo>` |
+| `@org` | organization of the repository |
+| `@name` | name of the repository |
+| `@number` | number of the pull request |
+| `@sender` | login of the sender of the event |
+| `@action` | action of the event |
+| `@base_ref` | base branch of the pull request |
+| `@head_ref` | head branch of the pull request |
+| `@sha` | head commit of the pull request |
+| `@hints` | handled test hint names, joined with `\|` |
+
+`@QUEUE` and `@RESOURCE` are left untouched for `dci-queue` and
+`dci-pipeline-check`.
+
+Only the variables of the table are expanded: any other `@token` is left
+as is, so a value like `quay.io/x/y@sha256:...` or `ci@redhat.com` is
+accepted verbatim in a command. The values are substituted literally and
+are not quoted: quote them in the command when they can contain shell
+metacharacters, a git branch name can contain `$`, backticks or
+parentheses.
+
+The GitHub token is read from the `GITHUB_TOKEN` environment variable,
+or from the `GITHUB_TOKEN=` entry of `~/.config/dci-pipeline/config`.
+
 ## Link between dci-pipeline and dci-queue: @QUEUE and @RESOURCE
 
 `dci-pipeline-schedule` and `dci-pipeline-check` are the links between `dci-queue` and `dci-pipeline`. These utilities are substituting the strings `@QUEUE` and `@RESOURCE` coming from `dci-queue` in the inventory path, the configuration, and the ansible_extravars of the `dci-pipeline` job definitions. Example:
@@ -835,7 +1028,7 @@ spokes already reserved for their own reason stay reserved. Force removing
 `hub1` fully removes all linked spokes, including independently reserved ones.
 Soft removing a spoke saves its parent so `add-resource spoke spoke1` restores
 the link. Force removing a spoke clears its parent link; specify `--parent`
-again when readding it.
+again when re-adding it.
 
 `dci-queue list` shows parent and dependent resources. Jobs using a linked
 resource receive `DCI_QUEUE_PARENT` and `DCI_QUEUE_PARENT_RES`. For each
@@ -935,7 +1128,7 @@ $ dci-queue add-pool parent
 $ dci-queue add-resource parent p1
 
 # Child pool
-$ dci-queue add-pool child 
+$ dci-queue add-pool child
 $ dci-queue add-resource child c1 --parent parent/p1
 $ dci-queue add-resource child c2 --parent parent/p1
 ```
