@@ -1,0 +1,95 @@
+---
+# Example configuration for the repositories of a lab where DCI votes on
+# its own projects, and where the checks are launched on demand on the
+# upstream projects.
+#
+# The repositories are matched in the order of this file, so the specific
+# projects come first and the catch-all entry comes last.
+
+auth:
+  orgs:
+    - dci-labs
+    - distributedci
+
+commands:
+  certsuite: dci-pipeline-check @url -p certsuite-green
+  preflight: dci-pipeline-check @url -p preflight-green
+  ocp: dci-pipeline-check @url -p openshift
+
+repos:
+
+  # CNF Cert Suite: a pull request labeled with dci-disable is never
+  # checked, and only the collaborators of the project can ask for a check.
+  # DCI does not vote on this upstream repository.
+  "redhat-best-practices-for-k8s/certsuite":
+    voting: false
+    skip_labels:
+      - dci-disable
+    auth:
+      collaborator: true
+    rules:
+      - name: dci-rerun
+        match: '(?i)^\s*/dci-rerun'
+        action: run
+        command: certsuite
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: certsuite
+      # The pull request landed: check the merged code.
+      - name: merged
+        only_if: '^closed$'
+        merged: true
+        action: run
+        command: certsuite
+      # The dci-disable label was removed: check the pull request now.
+      - name: unlabeled
+        only_if: '^unlabeled$'
+        match_label: '^dci-disable$'
+        action: run
+        command: certsuite
+
+  # OpenShift Preflight: the collaborators of the project can ask for a
+  # recheck, but the /dci-rerun command is reserved to the members of the
+  # DCI organizations because the list of the collaborators is private.
+  "redhat-openshift-ecosystem/openshift-preflight":
+    voting: false
+    auth:
+      collaborator: true
+    rules:
+      - name: dci-rerun
+        match: '(?i)^\s*/dci-rerun'
+        auth:
+          orgs:
+            - dci-labs
+            - redhatci
+        action: run
+        command: preflight
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: preflight
+
+  # The Ansible collection: the roles touched by the pull request select
+  # the job to run. Both rules are evaluated because of "continue: true",
+  # and the markdown files are ignored.
+  "redhatci/ansible-collection-redhatci-ocp":
+    voting: false
+    rules:
+      - name: preflight
+        only_if: '^(opened|synchronize|reopened)$'
+        file_match: 'roles/preflight'
+        ignore_files: '\.md$'
+        action: run
+        command: preflight
+        continue: true
+      - name: certsuite
+        only_if: '^(opened|synchronize|reopened)$'
+        file_match: 'roles/k8s_best_practices_certsuite'
+        ignore_files: '\.md$'
+        action: run
+        command: certsuite
+
+  # Catch-all: the events of the other repositories are ignored.
+  "(dci-labs|distributedci)/.*":
+    skip: true

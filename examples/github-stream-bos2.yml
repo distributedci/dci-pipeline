@@ -1,0 +1,53 @@
+---
+# Example configuration for a public repository where DCI does not vote.
+#
+# The jobs are started either from the Test<hint>: strings found in the
+# description of the pull request, or with a default pipeline when the
+# description does not ask for anything. Nothing is launched for the
+# force pushes done by the bot, and every other repository of the
+# organizations is ignored.
+
+auth:
+  orgs:
+    - dci-labs
+    - distributedci
+
+commands:
+  launch: dci-auto-launch @url
+  baremetal: dci-pipeline-check @url -p baremetal grout-test
+
+repos:
+
+  "dci-labs/grout":
+    voting: false
+    commands:
+      launch: dci-auto-launch @url
+      baremetal: dci-pipeline-check @url -p baremetal grout-test
+    rules:
+
+      # Trailer-only force pushes are not code changes.
+      - name: grout-bot
+        only_if: '^synchronize$'
+        ignore_senders:
+          - grout-bot
+        action: ignore
+
+      # Use the Test<hint>: strings of the description when there are some.
+      - name: hints
+        only_if: '^(opened|synchronize|reopened)$'
+        base_ref: '^(main|master)$'
+        match_pr_body: '^Test(@hints):'
+        action: run
+        command: launch
+        stdin: pr_body
+
+      # Default pipeline for the other pull requests.
+      - name: default
+        only_if: '^(opened|synchronize|reopened)$'
+        base_ref: '^(main|master)$'
+        action: run
+        command: baremetal
+
+  # Ignore the other repositories of the organizations.
+  "(dci-labs|distributedci)/.*":
+    skip: true

@@ -1,0 +1,194 @@
+---
+# Reference configuration file for dci-github-stream.
+#
+# This file shows the whole schema on made up repositories. Copy the parts
+# you need in /etc/dci-pipeline/github-stream.yml (or in the file pointed to
+# by GITHUB_STREAM_CONF / --config).
+#
+# Top level keys:
+#   auth            default authorization of the senders (mapping)
+#   commands        named shell scripts referenced by the rules (mapping)
+#   hint_command    command returning the handled test hint names
+#                   (default: dci-auto-launch --list-sections)
+#   repos           repositories handled by the tool (mapping)
+#
+# Template variables expanded from the event, in commands, comments,
+# pending descriptions and regular expressions:
+#   @url @repo @org @name @number @sender @action @base_ref @head_ref @sha
+#   @hints (the hint names returned by hint_command, joined with |)
+# @QUEUE and @RESOURCE are left untouched for dci-queue and
+# dci-pipeline-check.
+#
+# Rule order: the repositories are matched in the order of this file
+# against <org>/<repo> (regular expression, first match wins), then the
+# rules of the repository are evaluated in order and the first matching
+# rule is applied, unless it sets "continue: true".
+
+# Default authorization: a sender must be a member of one of these
+# organizations, or a collaborator of the repository when
+# "collaborator: true" is set.
+auth:
+  orgs: &dci_orgs
+    - dci-labs
+    - distributedci
+  collaborator: false
+
+# Commands shared by all the repositories. A shell command runs with bash
+# and the send_pending_msg, send_success_msg and send_comment helpers. The
+# states are only posted once the command succeeded, and a pending state is
+# posted automatically by the tool when a voting rule did not post a
+# success.
+commands:
+  launch: dci-auto-launch @url
+  check: dci-pipeline-check @url -p my-pool
+  no-check: |
+    send_pending_msg "waiting for a DCI job"
+    send_success_msg "SUCCESS"
+    send_comment "from change @url: no check (not a code change)"
+
+repos:
+
+  # A repository where DCI votes: the commit statuses are posted in the
+  # name of the DCI team. This entry is used as a YAML anchor by the entry
+  # below.
+  "dci-labs/example": &voting_repo
+    voting: true
+    auth:
+      orgs: *dci_orgs
+    commands:
+      check: dci-pipeline-check @url -p my-pool
+      no-check: |
+        send_pending_msg "waiting for a DCI job"
+        send_success_msg "SUCCESS"
+        send_comment "from change @url: no check (not a code change)"
+    rules:
+
+      # "/dci-rerun" comment: launch the jobs described by the description
+      # of the pull request.
+      - name: dci-rerun
+        match: '(?i)^\s*/dci-rerun'
+        action: run
+        command: check
+        stdin: pr_body
+        pending_description: waiting for a DCI job
+
+      # "recheck" or "retest" comment: launch the check again.
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: check
+        stdin: pr_body
+
+      # A comment from somebody outside of the DCI organizations is
+      # refused with a single comment and nothing is launched.
+      - name: ignore-bots
+        ignore_senders:
+          - dependabot
+        action: ignore
+
+      # New or updated pull request with a Test<hint>: string: the hints
+      # are those returned by hint_command.
+      - name: hints
+        only_if: '^(opened|synchronize|reopened)$'
+        base_ref: '^(main|master)$'
+        match_pr_body: '^Test(@hints):'
+        action: run
+        command: check
+        stdin: pr_body
+
+      # New or updated pull request asking for no check at all.
+      - name: no-check
+        only_if: '^(opened|synchronize|reopened)$'
+        match_pr_body: '(?i)^\s*Test-Hints?:\s*no-check'
+        action: run
+        command: no-check
+        stdin: pr_body
+
+  # A second voting repository reusing the settings above.
+  "dci-labs/example-bis":
+    <<: *voting_repo
+    rules:
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: check
+        stdin: pr_body
+
+  # A public repository where DCI does not vote: only the members of the
+  # DCI organizations can start a job, and the commits are left untouched.
+  "redhat-best-practices-for-k8s/certsuite":
+    voting: false
+    skip_labels:
+      - dci-disable
+    auth:
+      collaborator: true
+    commands:
+      check: dci-pipeline-check @url -p certsuite-green
+    rules:
+      - name: dci-rerun
+        match: '(?i)^\s*/dci-rerun'
+        action: run
+        command: check
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: check
+      # A merged pull request is checked again once it landed.
+      - name: merged
+        only_if: '^closed$'
+        merged: true
+        action: run
+        command: check
+      # Removing the dci-disable label triggers a check.
+      - name: unlabeled
+        only_if: '^unlabeled$'
+        match_label: '^dci-disable$'
+        action: run
+        command: check
+
+  # A repository where the changed files select the jobs to run. Both rules
+  # are evaluated because of "continue: true", and the markdown files are
+  # ignored.
+  "redhatci/ansible-collection-redhatci-ocp":
+    voting: false
+    rules:
+      - name: preflight
+        only_if: '^(opened|synchronize|reopened)$'
+        file_match: 'roles/preflight'
+        ignore_files: '\.md$'
+        action: run
+        command: check
+        continue: true
+      - name: certsuite
+        only_if: '^(opened|synchronize|reopened)$'
+        file_match: 'roles/k8s_best_practices_certsuite'
+        ignore_files: '\.md$'
+        action: run
+        command: check
+
+  # Only the members of the DCI organizations can ask for a rerun, while the
+  # collaborators of the repository can ask for a recheck.
+  "redhat-openshift-ecosystem/openshift-preflight":
+    voting: false
+    auth:
+      collaborator: true
+    commands:
+      check: dci-pipeline-check @url -p preflight-green
+    rules:
+      - name: dci-rerun
+        match: '(?i)^\s*/dci-rerun'
+        auth:
+          orgs:
+            - dci-labs
+            - redhatci
+        action: run
+        command: check
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: check
+
+  # Catch-all: ignore the events of the other repositories of the
+  # organizations.
+  "(dci-labs|distributedci)/.*":
+    skip: true
