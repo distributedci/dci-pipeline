@@ -111,6 +111,7 @@ EVENT_TEMPLATE_VARS = (
 # Variables that are expanded by other tools (dci-queue, dci-pipeline-check)
 # and must be left untouched.
 PASS_THROUGH_VARS = ("@QUEUE", "@RESOURCE")
+KNOWN_TEMPLATE_VARS = frozenset(EVENT_TEMPLATE_VARS) | frozenset(PASS_THROUGH_VARS)
 TEMPLATE_RE = re.compile(r"@[A-Za-z_][A-Za-z0-9_]*")
 _NEVER_MATCH = re.compile(r"(?!)")
 
@@ -160,16 +161,38 @@ class ConfigError(Exception):
 #
 
 
+_WARNED_TEMPLATES = set()
+
+
 def check_template(value, where):
-    """raise ConfigError if value uses an unknown template variable"""
+    """warn about the @tokens of value that are not known template variables.
+
+    Only the variables of EVENT_TEMPLATE_VARS are expanded, any other
+    token is left untouched so that legitimate shell values such as
+    quay.io/x/y@sha256:... or ci@redhat.com are accepted verbatim.
+    """
     for match in TEMPLATE_RE.finditer(value):
         token = match.group(0)
-        if token not in EVENT_TEMPLATE_VARS and token not in PASS_THROUGH_VARS:
-            raise ConfigError(f"{where}: unknown template variable {token}")
+        if token in KNOWN_TEMPLATE_VARS:
+            continue
+        key = (where, token)
+        if key in _WARNED_TEMPLATES:
+            continue
+        _WARNED_TEMPLATES.add(key)
+        LOG.warning(
+            "%s: '%s' is not a known template variable, it is left as is",
+            where,
+            token,
+        )
 
 
 def render(value, event, hints=()):
-    """expand the template variables of value using the event"""
+    """expand the template variables of value using the event.
+
+    The substitution is done in a single pass, so the values of the event
+    are never expanded again and a token that is not a known variable is
+    left as is.
+    """
     values = {
         "@url": event.get("url") or "",
         "@repo": event.get("repo") or "",
@@ -183,10 +206,9 @@ def render(value, event, hints=()):
         "@sha": event.get("sha") or "",
         "@hints": "|".join(hints),
     }
-    result = value
-    for token in sorted(values, key=len, reverse=True):
-        result = result.replace(token, values[token])
-    return result
+    return TEMPLATE_RE.sub(
+        lambda match: values.get(match.group(0), match.group(0)), value
+    )
 
 
 #
@@ -234,6 +256,12 @@ def _label_name(payload):
 
 def _parse_comment_event(payload):
     "normalize an issue_comment event"
+    # Only a new comment triggers anything: an edited or deleted comment
+    # still carries its body in the payload and would relaunch the job.
+    action = payload.get("action") or ""
+    if action != "created":
+        LOG.debug("skipping issue_comment event with the action '%s'", action)
+        return None
     issue = payload["issue"]
     comment = payload["comment"]
     pull_request = issue.get("pull_request")
@@ -531,6 +559,8 @@ def _load_rule(index, value, where, commands):
 
 def _load_repo(pattern, value, where, common_commands):
     "validate the configuration of one repository"
+    # The pattern is matched against the whole <org>/<repo> name by
+    # find_repo(), so "dci-labs/grout" does not capture "dci-labs/grout-config".
     try:
         regex = re.compile(pattern, re.IGNORECASE)
     except re.error as exc:
@@ -793,7 +823,11 @@ class AuthResolver:
             return True
         if not sender:
             return False
-        key = (spec, sender)
+        # The collaborator check is repository specific, so the cache key
+        # must contain the organization and the repository: two
+        # repositories configured with the same specification must never
+        # share the result of the check.
+        key = (spec, org, repo, sender)
         if key in self.cache:
             return self.cache[key]
         if self.client.dry_run:
@@ -977,10 +1011,15 @@ class Engine:
         return results
 
     def find_repo(self, event):
-        "return the first repository block matching the event"
+        """return the first repository block matching the event.
+
+        The keys of the configuration are regular expressions matched
+        against the whole <org>/<repo> name, so that "dci-labs/grout" does
+        not capture "dci-labs/grout-config".
+        """
         repo_name = event.get("repo") or ""
         for repo in self.config.repos:
-            if repo.regex.search(repo_name):
+            if repo.regex.fullmatch(repo_name):
                 return repo
         return None
 
@@ -1096,10 +1135,14 @@ class Engine:
         else:
             result = self.runner.command(code)
         results.append({"rule": rule.name, "action": "command", "rc": result.rc})
-        emitted_success = self.replay(rule, repo, event, result.actions)
-        description = (
-            rule.pending_description or repo.pending_description
-        ) or DEFAULT_PENDING_DESCRIPTION
+        description = self.pending_description(rule, repo, event)
+        emitted_success = self.replay(
+            rule,
+            event,
+            result.actions,
+            description,
+            emit_statuses=repo.voting and result.rc == 0,
+        )
         if repo.voting and result.rc == 0 and not emitted_success:
             self.client.set_status(
                 event.get("pulls_url") or "", STATE_PENDING, description
@@ -1109,24 +1152,43 @@ class Engine:
             )
         return results
 
-    def replay(self, rule, repo, event, actions):
-        "send the actions recorded by a command, return True if one succeeded"
+    def pending_description(self, rule, repo, event):
+        "return the pending status description of a rule, expanded for the event"
+        source = rule.pending_description or repo.pending_description
+        return (
+            render(source or DEFAULT_PENDING_DESCRIPTION, event, self.hints)
+            or DEFAULT_PENDING_DESCRIPTION
+        )
+
+    def replay(self, rule, event, actions, description, emit_statuses=True):
+        """send the actions recorded by a command, return True if one succeeded.
+
+        The commit statuses are only posted when the command succeeded and
+        when the repository is voting, so that a command failing after a
+        send_pending_msg cannot leave a permanent pending status. The
+        comments are always posted.
+        """
         emitted_success = False
         pulls_url = event.get("pulls_url") or ""
         comments_url = event.get("comments_url") or ""
-        description = (
-            rule.pending_description or repo.pending_description
-        ) or DEFAULT_PENDING_DESCRIPTION
         for action in actions:
             kind = action.get("action")
             text = action.get("description") or ""
             if kind == "pending":
-                self.client.set_status(pulls_url, STATE_PENDING, text or description)
+                if emit_statuses:
+                    self.client.set_status(
+                        pulls_url, STATE_PENDING, text or description
+                    )
+                else:
+                    LOG.debug("not posting the pending status of %s", rule.name)
             elif kind == "success":
                 emitted_success = True
-                self.client.set_status(
-                    pulls_url, STATE_SUCCESS, text or SUCCESS_DESCRIPTION
-                )
+                if emit_statuses:
+                    self.client.set_status(
+                        pulls_url, STATE_SUCCESS, text or SUCCESS_DESCRIPTION
+                    )
+                else:
+                    LOG.debug("not posting the success status of %s", rule.name)
             elif kind == "comment":
                 self.client.post_comment(comments_url, text)
             else:
