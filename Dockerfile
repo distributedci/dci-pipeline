@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/ubi
+FROM registry.access.redhat.com/ubi9/podman
 
 LABEL name="dci-pipeline"
 # keep in sync with setup.py and dci-pipeline.spec
