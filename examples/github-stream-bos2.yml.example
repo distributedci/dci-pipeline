@@ -1,4 +1,7 @@
 ---
+# This is a dci-github-stream configuration and not a dci-pipeline job
+# definition, hence the .yml.example suffix. Copy it to the configuration file
+# used by dci-github-stream (see ../README.md).
 # Example configuration for a public repository where DCI does not vote.
 #
 # The jobs are started either from the Test<hint>: strings found in the

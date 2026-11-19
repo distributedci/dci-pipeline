@@ -735,7 +735,7 @@ repos:
 
 
 def test_reference_example_reaches_the_second_repository():
-    path = ROOT / "examples" / "github-stream.yml"
+    path = ROOT / "examples" / "github-stream.yml.example"
     config = github_stream.load_config(str(path))
     engine = github_stream.Engine(config, FakeClient(), FakeRunner(), FakeAuth())
     # "dci-labs/example" must not capture "dci-labs/example-bis"
@@ -1660,18 +1660,18 @@ ROOT = pathlib.Path(github_stream.__file__).resolve().parent.parent
 
 def test_no_reference_to_the_legacy_configuration():
     paths = [ROOT / "dcipipeline" / "github_stream.py"]
-    paths.extend(sorted((ROOT / "examples").glob("github-stream*.yml")))
+    paths.extend(sorted((ROOT / "examples").glob("github-stream*.yml.example")))
     assert len(paths) > 3
     for path in paths:
         assert "auto.conf" not in path.read_text(encoding="utf-8"), path
 
 
 def test_examples_are_valid_configurations():
-    paths = sorted((ROOT / "examples").glob("github-stream*.yml"))
+    paths = sorted((ROOT / "examples").glob("github-stream*.yml.example"))
     assert [path.name for path in paths] == [
-        "github-stream-bos2.yml",
-        "github-stream-vcp.yml",
-        "github-stream.yml",
+        "github-stream-bos2.yml.example",
+        "github-stream-vcp.yml.example",
+        "github-stream.yml.example",
     ]
     for path in paths:
         config = github_stream.load_config(str(path))
@@ -1679,7 +1679,7 @@ def test_examples_are_valid_configurations():
 
 
 def test_examples_are_yaml():
-    for path in sorted((ROOT / "examples").glob("github-stream*.yml")):
+    for path in sorted((ROOT / "examples").glob("github-stream*.yml.example")):
         assert isinstance(yaml.safe_load(path.read_text(encoding="utf-8")), dict)
 
 

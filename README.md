@@ -715,7 +715,13 @@ them never match. Authorization is assumed to succeed. The pending status
 is not posted (nothing was launched), it is only reported as an intended
 action in the results.
 
-A complete commented example is available in `examples/github-stream.yml`.
+A complete commented example is available in
+`examples/github-stream.yml.example`, together with two real life
+configurations in `examples/github-stream-bos2.yml.example` and
+`examples/github-stream-vcp.yml.example`. The examples are shipped with
+a `.yml.example` suffix because they are `dci-github-stream`
+configurations, not `dci-pipeline` job definitions: `dci-pipeline-lint`
+must not validate them as pipelines.
 
 ### Configuration file
 

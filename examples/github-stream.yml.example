@@ -1,4 +1,8 @@
 ---
+#
+# This is a dci-github-stream configuration, not a dci-pipeline job
+# definition, hence the .yml.example suffix: dci-pipeline-lint would otherwise
+# reject it as a pipeline file. Copy it to /etc/dci-pipeline/github-stream.yml.
 # Reference configuration file for dci-github-stream.
 #
 # This file shows the whole schema on made up repositories. Copy the parts

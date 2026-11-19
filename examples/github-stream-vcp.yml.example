@@ -1,4 +1,7 @@
 ---
+# This is a dci-github-stream configuration and not a dci-pipeline job
+# definition, hence the .yml.example suffix. Copy it to the configuration file
+# used by dci-github-stream (see ../README.md).
 # Example configuration for the repositories of a lab where DCI votes on
 # its own projects, and where the checks are launched on demand on the
 # upstream projects.
