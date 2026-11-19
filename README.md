@@ -700,9 +700,20 @@ logged without stopping the stream.
 
 The configuration file is `/etc/dci-pipeline/github-stream.yml` by
 default. Use `--config <file>` or the `GITHUB_STREAM_CONF` environment
-variable to use another one, and `--dry-run` to print the actions that
-would be sent to the GitHub API instead of calling it. The `--dry-run`
-mode does not need a token nor a network access.
+variable to use another one, and `--dry-run` to print the intended GitHub
+API calls, shell commands and test hint discovery instead of executing
+them. The `--dry-run` mode does not need a token nor a network access.
+
+`--dry-run` is a preview, not a validation: it performs no GitHub API
+call, runs no shell command (the commands of the rules and the
+`hint_command` are only logged and printed as `+ COMMAND ...` lines), and
+therefore discovers no test hint, so a `Test(@hints):` selector of the
+pull request body cannot match. Because no API call is made, the
+`file_match` and `ignore_files` selectors cannot be evaluated either: the
+changed files of the pull request are unknown and the selectors that need
+them never match. Authorization is assumed to succeed. The pending status
+is not posted (nothing was launched), it is only reported as an intended
+action in the results.
 
 A complete commented example is available in `examples/github-stream.yml`.
 

@@ -41,8 +41,8 @@ Example:
 
   $ tail -F /var/log/github-stream.log | dci-github-stream --config github-stream.yml
 
-Use --dry-run to print the actions the tool would perform instead of
-calling the GitHub API.
+Use --dry-run to print the GitHub API calls, the commands and the test
+hint discovery the tool would perform instead of executing them.
 """
 
 import argparse
@@ -83,6 +83,16 @@ HINT_LIST_COMMAND = ("dci-auto-launch", "--list-sections")
 
 KIND_COMMENT = "issue_comment"
 KIND_PULL_REQUEST = "pull_request"
+
+# GitHub event names accepted by the tool, as carried by the X-GitHub-Event
+# header. The other event names (pull_request_review,
+# pull_request_review_comment, pull_request_review_thread, issues, ...) are
+# ignored so that a review never relaunches a job.
+SUPPORTED_EVENT_NAMES = (KIND_COMMENT, KIND_PULL_REQUEST)
+
+# payload keys carrying the GitHub event name when the header is not
+# forwarded on the stream
+EVENT_NAME_KEYS = ("x-github-event", "event")
 
 ACTION_RUN = "run"
 ACTION_COMMENT = "comment"
@@ -322,11 +332,20 @@ def _parse_pull_request_event(payload):
     return event
 
 
+def _event_name(payload):
+    "return the lowercased GitHub event name carried by the payload, if any"
+    for key, value in payload.items():
+        if isinstance(key, str) and key.lower() in EVENT_NAME_KEYS:
+            if isinstance(value, str):
+                return value.strip().lower()
+    return ""
+
+
 def parse_event(line):
     """parse one line of the event stream.
 
     Return a normalized event dictionary or None when the line is not a
-    supported event.
+    supported event. This never raises and never stops the stream.
     """
     if isinstance(line, bytes):
         line = line.decode("utf-8", errors="replace")
@@ -341,11 +360,32 @@ def parse_event(line):
     if not isinstance(payload, dict):
         LOG.warning("skipping event that is not a JSON object")
         return None
+    name = _event_name(payload)
+    if name and name not in SUPPORTED_EVENT_NAMES:
+        LOG.debug("skipping unsupported GitHub event '%s'", name)
+        return None
+    # Without an event name in the payload, the shape of the payload is the
+    # only clue: the checks are exclusive, a review or a review comment also
+    # carries a pull_request (or a comment) and must not be normalized as a
+    # pull request event.
     if isinstance(payload.get("issue"), dict) and isinstance(
         payload.get("comment"), dict
     ):
         return _parse_comment_event(payload)
-    if isinstance(payload.get("pull_request"), dict):
+    if "review" in payload:
+        LOG.debug("skipping pull request review event")
+        return None
+    if isinstance(payload.get("comment"), dict) and isinstance(
+        payload.get("pull_request"), dict
+    ):
+        LOG.debug("skipping pull request review comment event")
+        return None
+    pull_request = payload.get("pull_request")
+    if (
+        isinstance(pull_request, dict)
+        and isinstance(pull_request.get("base"), dict)
+        and isinstance(pull_request.get("head"), dict)
+    ):
         return _parse_pull_request_event(payload)
     LOG.debug("skipping event that is neither a comment nor a pull request event")
     return None
@@ -651,17 +691,22 @@ def default_config_path():
 _HINTS_CACHE = {}
 
 
-def list_hints(command=None):
+def list_hints(command=None, dry_run=False):
     """return the list of the test hint names.
 
     The names come from the command given by the hint_command configuration
-    key, dci-auto-launch --list-sections by default, and are cached.
+    key, dci-auto-launch --list-sections by default, and are cached. In
+    dry-run mode the command is not run, the cache is left untouched and an
+    empty list is returned.
     """
     if command is None:
         command = HINT_LIST_COMMAND
     key = (
         tuple(command) if not isinstance(command, str) else tuple(shlex.split(command))
     )
+    if dry_run:
+        LOG.info("dry-run: not running the hint command '%s'", " ".join(key))
+        return []
     if key in _HINTS_CACHE:
         return _HINTS_CACHE[key]
     hints = []
@@ -911,8 +956,9 @@ def read_actions(text):
 class CommandRunner:
     "run the commands of the configuration with bash"
 
-    def __init__(self, timeout=DEFAULT_COMMAND_TIMEOUT):
+    def __init__(self, timeout=DEFAULT_COMMAND_TIMEOUT, dry_run=False):
         self.timeout = timeout
+        self.dry_run = dry_run
 
     def command(self, code, timeout=None):
         "run a command without anything on its standard input"
@@ -923,6 +969,15 @@ class CommandRunner:
         return self._run(code, pr_body, timeout)
 
     def _run(self, code, stdin, timeout):
+        if self.dry_run:
+            if stdin is not None:
+                LOG.info(
+                    "dry-run: would run command with the PR body on stdin: %s", code
+                )
+            else:
+                LOG.info("dry-run: would run command: %s", code)
+            print(f"+ COMMAND {code}", file=sys.stderr)
+            return CommandResult(rc=0, actions=())
         script = f"{BASH_PRELUDE}\n{code}\n"
         with tempfile.NamedTemporaryFile(
             mode="w+", prefix="dci-github-stream-", suffix=".jsonl"
@@ -1144,12 +1199,25 @@ class Engine:
             emit_statuses=repo.voting and result.rc == 0,
         )
         if repo.voting and result.rc == 0 and not emitted_success:
-            self.client.set_status(
-                event.get("pulls_url") or "", STATE_PENDING, description
-            )
-            results.append(
-                {"rule": rule.name, "action": "status", "state": STATE_PENDING}
-            )
+            if getattr(self.runner, "dry_run", False):
+                # nothing was launched, so the pending status is only a
+                # reported intention: posting it would leave a permanent
+                # pending status on the pull request.
+                results.append(
+                    {
+                        "rule": rule.name,
+                        "action": "status",
+                        "state": STATE_PENDING,
+                        "dry_run": True,
+                    }
+                )
+            else:
+                self.client.set_status(
+                    event.get("pulls_url") or "", STATE_PENDING, description
+                )
+                results.append(
+                    {"rule": rule.name, "action": "status", "state": STATE_PENDING}
+                )
         return results
 
     def pending_description(self, rule, repo, event):
@@ -1232,7 +1300,13 @@ def process_stream(lines, config_path, client, runner, auth):
         except ConfigError as exc:
             LOG.error("%s", exc)
             continue
-        engine = Engine(config, client, runner, auth, list_hints(config.hint_command))
+        engine = Engine(
+            config,
+            client,
+            runner,
+            auth,
+            list_hints(config.hint_command, dry_run=getattr(client, "dry_run", False)),
+        )
         try:
             results = engine.process(event)
         except Exception as exc:  # noqa: BLE001 - the stream must survive anything
@@ -1265,7 +1339,10 @@ def main(argv=None):
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="print the actions instead of calling the GitHub API",
+        help=(
+            "print the intended GitHub API calls, commands and hint discovery "
+            "instead of executing them"
+        ),
     )
     parser.add_argument(
         "infile",
@@ -1284,7 +1361,7 @@ def main(argv=None):
         args.infile,
         args.config,
         client,
-        CommandRunner(),
+        CommandRunner(dry_run=args.dry_run),
         AuthResolver(client),
     )
     return 0

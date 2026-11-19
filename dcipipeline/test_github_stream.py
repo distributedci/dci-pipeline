@@ -21,6 +21,7 @@ command, except for the tests of the command runner itself.
 """
 
 import json
+import logging
 import pathlib
 
 import pytest
@@ -87,6 +88,8 @@ class FakeClient:
 
 class FakeRunner:
     "fake command runner returning scripted results"
+
+    dry_run = False
 
     def __init__(self, results=None):
         self.results = list(results or [])
@@ -182,6 +185,28 @@ def pr_payload(
     if label is not None:
         payload["label"] = {"name": label}
     return payload
+
+
+def review_payload(state="approved"):
+    "build a pull_request_review payload"
+    return {
+        "action": "submitted",
+        "review": {"state": state, "body": "LGTM", "user": {"login": "alice"}},
+        "pull_request": pr_payload()["pull_request"],
+        "repository": repo_payload(),
+        "sender": {"login": "alice"},
+    }
+
+
+def review_comment_payload(body="/dci-rerun"):
+    "build a pull_request_review_comment payload"
+    return {
+        "action": "created",
+        "comment": {"body": body, "pull_request_review_id": 1},
+        "pull_request": pr_payload()["pull_request"],
+        "repository": repo_payload(),
+        "sender": {"login": "alice"},
+    }
 
 
 def make_event(payload):
@@ -282,6 +307,42 @@ def test_parse_event_skips_edited_and_deleted_comments():
     for action in ("edited", "deleted"):
         payload = comment_payload(body="/dci-rerun", action=action)
         assert github_stream.parse_event(json.dumps(payload)) is None
+
+
+def test_parse_event_skips_reviews_and_review_comments():
+    # a review carries a pull_request but must not be taken for a pull
+    # request event
+    assert github_stream.parse_event(json.dumps(review_payload())) is None
+    assert (
+        github_stream.parse_event(json.dumps(review_payload(state="changes_requested")))
+        is None
+    )
+    # a review comment carries a comment and a pull_request but no issue
+    assert github_stream.parse_event(json.dumps(review_comment_payload())) is None
+    # a pull_request event without base/head is not a pull request event
+    payload = pr_payload()
+    del payload["pull_request"]["base"]
+    del payload["pull_request"]["head"]
+    assert github_stream.parse_event(json.dumps(payload)) is None
+
+
+def test_parse_event_uses_the_event_name_when_present():
+    # the event name of the X-GitHub-Event header, forwarded in the payload,
+    # wins over the shape of the payload
+    payload = review_payload()
+    payload["X-GitHub-Event"] = "pull_request_review"
+    assert github_stream.parse_event(json.dumps(payload)) is None
+    payload = review_comment_payload()
+    payload["x-github-event"] = "pull_request_review_comment"
+    assert github_stream.parse_event(json.dumps(payload)) is None
+    payload = comment_payload()
+    payload["event"] = "issue_comment"
+    event = github_stream.parse_event(json.dumps(payload))
+    assert event["kind"] == github_stream.KIND_COMMENT
+    payload = pr_payload()
+    payload["X-GitHub-Event"] = "pull_request"
+    event = github_stream.parse_event(json.dumps(payload))
+    assert event["kind"] == github_stream.KIND_PULL_REQUEST
 
 
 def test_edited_comment_does_not_dispatch_a_job(tmp_path):
@@ -1467,10 +1528,12 @@ def test_process_stream_survives_a_client_error(tmp_path, caplog):
     assert "error while processing an event" in caplog.text
 
 
-def test_main_dry_run_on_synthetic_payloads(tmp_path, capsys):
-    text = """
+def test_main_dry_run_on_synthetic_payloads(tmp_path, capsys, caplog):
+    caplog.set_level(logging.INFO)
+    sentinel = tmp_path / "ran"
+    text = f"""
 commands:
-  launch: echo @url | wc -c
+  launch: touch {sentinel}
 repos:
   "dci-labs/grout":
     voting: true
@@ -1500,8 +1563,91 @@ repos:
         == 0
     )
     err = capsys.readouterr().err
-    assert "+ POST" in err
+    assert "+ COMMAND touch" in err
+    assert "would run command" in caplog.text
+    # nothing was launched, so no pending status is posted
+    assert "+ POST" not in err
     assert "no GitHub token" not in err
+    assert not sentinel.exists()
+
+
+def test_command_runner_dry_run_does_not_execute_the_command(tmp_path, capsys):
+    sentinel = tmp_path / "ran"
+    runner = github_stream.CommandRunner(dry_run=True)
+    result = runner.command(f"touch {sentinel}")
+    assert result.rc == 0
+    assert result.actions == ()
+    assert f"+ COMMAND touch {sentinel}" in capsys.readouterr().err
+    assert not sentinel.exists()
+    result = runner.command_pr_body(f"touch {sentinel}", "TestLab: ocp")
+    assert result.rc == 0
+    assert not sentinel.exists()
+
+
+def test_engine_apply_dry_run_does_not_post_the_pending_status(tmp_path):
+    client = FakeClient()
+    client.dry_run = True
+    engine, client, _, _ = build(
+        tmp_path,
+        SIMPLE_CONFIG,
+        client=client,
+        runner=github_stream.CommandRunner(dry_run=True),
+    )
+    results = engine.process(make_event(comment_payload(body="/dci-rerun")))
+    assert client.calls == []
+    assert results == [
+        {"rule": "dci-rerun", "action": "run"},
+        {"rule": "dci-rerun", "action": "command", "rc": 0},
+        {
+            "rule": "dci-rerun",
+            "action": "status",
+            "state": "pending",
+            "dry_run": True,
+        },
+    ]
+
+
+def test_list_hints_dry_run_does_not_run_the_command(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    github_stream._HINTS_CACHE.clear()
+    sentinel = tmp_path / "hints"
+    assert github_stream.list_hints(("touch", str(sentinel)), dry_run=True) == []
+    assert not sentinel.exists()
+    assert "dry-run: not running the hint command" in caplog.text
+    # the cache stays empty so that a later real run discovers the hints
+    assert github_stream._HINTS_CACHE == {}
+
+
+def test_process_stream_dry_run_does_not_run_the_hint_command(tmp_path):
+    github_stream._HINTS_CACHE.clear()
+    hints = tmp_path / "hints"
+    sentinel = tmp_path / "ran"
+    text = f"""
+hint_command: "touch {hints}"
+commands:
+  launch: touch {sentinel}
+repos:
+  "dci-labs/grout":
+    voting: true
+    rules:
+      - name: dci-rerun
+        match: '(?i)^\\s*/dci-rerun'
+        action: run
+        command: launch
+"""
+    path = write_config(tmp_path, text)
+    client = FakeClient()
+    client.dry_run = True
+    github_stream.process_stream(
+        [json.dumps(comment_payload(body="/dci-rerun"))],
+        str(path),
+        client,
+        github_stream.CommandRunner(dry_run=True),
+        FakeAuth(),
+    )
+    assert not hints.exists()
+    assert not sentinel.exists()
+    assert client.calls == []
 
 
 #
