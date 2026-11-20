@@ -16,6 +16,7 @@ include dci-pipeline.sudo
 include dcipipeline/agents/*/agent.yml
 include dcipipeline/pipeline.yml
 include dciqueue/dci-queue.bash_completion
+include scripts/dci-queue
 include requirements.txt
 include sysconfig/*
 include systemd/*

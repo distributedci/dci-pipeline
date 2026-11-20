@@ -8,7 +8,7 @@
 
 Name:           dci-pipeline
 # to keep in sync with setup.py and Dockerfile
-Version:        0.16.0
+Version:        0.16.1
 Release:        1.VERS%{?dist}
 Summary:        CI pipeline management for DCI jobs
 License:        ASL 2.0
@@ -60,9 +60,15 @@ CI pipeline management for DCI jobs (via podman)
 %package -n dci-queue
 Summary:        dci-queue utility
 Requires:       cronie
+%if 0%{?with_python3}
+Requires:       python3
+%else
+Requires:       python2
+%endif
 
 %description -n dci-queue
-Queue management for dci-pipeline
+Queue management for dci-pipeline. Standalone: does not require the
+dci-pipeline package (Python modules and CLI ship in this subpackage).
 
 %prep -a -v
 %autosetup -n %{name}-%{version}
@@ -145,8 +151,10 @@ exit 0
 %doc README.md
 %if 0%{?with_python2}
 %{python2_sitelib}/*
+%exclude %{python2_sitelib}/dciqueue
 %else
 %{python3_sitelib}/*
+%exclude %{python3_sitelib}/dciqueue
 %endif
 %{_bindir}/dci-pipeline
 %{_bindir}/dci-auto-launch
@@ -159,7 +167,6 @@ exit 0
 %attr(770, %{name}, %{name}) /var/lib/%{name}
 %config(noreplace) %{_sysconfdir}/sysconfig/%{name}
 %config(noreplace) %{_sysconfdir}/%{name}/pipeline.yml
-%config(noreplace) %{_sysconfdir}/bash_completion.d/dci-queue
 %{_unitdir}/dci-pipeline.service
 %{_unitdir}/dci-pipeline.timer
 %{_sysconfdir}/sudoers.d/%{name}
@@ -184,9 +191,19 @@ exit 0
 
 %files -n dci-queue
 %{_bindir}/dci-queue
+%if 0%{?with_python2}
+%{python2_sitelib}/dciqueue
+%else
+%{python3_sitelib}/dciqueue
+%endif
+%config(noreplace) %{_sysconfdir}/bash_completion.d/dci-queue
 %attr(2770, dci-queue, dci-queue) /var/lib/dci-queue
 
 %changelog
+* Thu Oct 22 2026 Pierre Blanc <pblanc@redhat.com> 0.16.1-1
+- Make dci-queue standalone: ship dciqueue Python modules and a direct
+  CLI wrapper so dci-pipeline-podman works without the dci-pipeline RPM
+
 * Fri Aug 21 2026 Tony Garcia <tonyg@redhat.com> 0.16.0-1
 - Bump to use dciclient with support to redacted files
 
