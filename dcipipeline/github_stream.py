@@ -243,10 +243,22 @@ def _labels(value):
 
 def _base_event(payload, repository):
     "build the fields shared by all the events"
+    if not isinstance(repository, dict):
+        LOG.debug("ignoring an event with a malformed repository")
+        repository = {}
     full_name = repository.get("full_name") or ""
+    if not isinstance(full_name, str):
+        full_name = ""
     owner = repository.get("owner") or {}
-    org = owner.get("login") or (full_name.split("/")[0] if "/" in full_name else "")
+    if not isinstance(owner, dict):
+        owner = {}
+    if isinstance(owner.get("login"), str):
+        org = owner["login"]
+    else:
+        org = full_name.split("/")[0] if "/" in full_name else ""
     name = repository.get("name") or (full_name.split("/")[-1] if full_name else "")
+    if not isinstance(name, str):
+        name = ""
     return {
         "action": payload.get("action") or "",
         "repo": full_name,
@@ -308,7 +320,14 @@ def _parse_pull_request_event(payload):
     pull_request = payload["pull_request"]
     base = pull_request.get("base") or {}
     head = pull_request.get("head") or {}
-    repository = payload.get("repository") or base.get("repo") or {}
+    if not isinstance(base, dict) or not isinstance(head, dict):
+        LOG.debug("ignoring a pull request event with a malformed base or head")
+        return None
+    repository = payload.get("repository")
+    if not isinstance(repository, dict):
+        repository = base.get("repo")
+    if not isinstance(repository, dict):
+        repository = {}
     if not pull_request.get("url"):
         LOG.debug("skipping pull request event without an API URL")
         return None
@@ -375,6 +394,9 @@ def parse_event(line):
     if "review" in payload:
         LOG.debug("skipping pull request review event")
         return None
+    if "thread" in payload:
+        LOG.debug("skipping pull request review thread event")
+        return None
     if isinstance(payload.get("comment"), dict) and isinstance(
         payload.get("pull_request"), dict
     ):
@@ -385,6 +407,9 @@ def parse_event(line):
         isinstance(pull_request, dict)
         and isinstance(pull_request.get("base"), dict)
         and isinstance(pull_request.get("head"), dict)
+        # A real pull_request event always carries a top-level number, a
+        # review thread does not.
+        and isinstance(payload.get("number"), int)
     ):
         return _parse_pull_request_event(payload)
     LOG.debug("skipping event that is neither a comment nor a pull request event")
@@ -672,6 +697,8 @@ def load_config(path=None):
             hint_command = tuple(shlex.split(value))
         else:
             hint_command = _as_str_list(value, f"{path}: hint_command")
+        if not hint_command:
+            raise ConfigError(f"{path}: hint_command must not be empty")
         config.hint_command = hint_command
     repos = data.get("repos") or {}
     if not isinstance(repos, dict):
@@ -1059,7 +1086,13 @@ class Engine:
             if not self.matches(rule, event):
                 continue
             if not self.authorized(rule, repo, event):
-                return results
+                if event.get("kind") == KIND_COMMENT:
+                    # A refused comment is answered once, in refuse(), and
+                    # nothing else is dispatched for the event.
+                    return results
+                # A pull request event refused by a rule-level auth is just a
+                # rule that does not apply: a later rule may still handle it.
+                continue
             results.extend(self.apply(rule, repo, event))
             if not rule.continue_after:
                 break
@@ -1141,15 +1174,32 @@ class Engine:
         return True
 
     def authorized(self, rule, repo, event):
-        "check the authorization of the sender of a comment event"
-        if event.get("kind") != KIND_COMMENT:
-            return True
-        spec = rule.auth or repo.auth or self.config.auth
+        """check the authorization of the sender for the rule.
+
+        A comment event inherits the repository and the top-level auth when
+        the rule does not define its own. A pull request event does not
+        inherit anything: only an explicit rule-level auth applies, so that
+        enabling auth on a repository does not filter the pull request
+        events of its rules.
+        """
+        if event.get("kind") == KIND_COMMENT:
+            spec = rule.auth or repo.auth or self.config.auth
+        else:
+            spec = rule.auth
         if spec is None or not spec.active:
             return True
         sender = event.get("sender") or ""
         if self.auth.allowed(spec, event.get("org"), event.get("name"), sender):
             return True
+        if event.get("kind") != KIND_COMMENT:
+            LOG.info(
+                "%s#%s: %s unauthorized for rule %s",
+                event.get("repo"),
+                event.get("number"),
+                sender or "an unknown sender",
+                rule.name,
+            )
+            return False
         self.refuse(rule, event, sender)
         return False
 
@@ -1292,23 +1342,24 @@ class Engine:
 def process_stream(lines, config_path, client, runner, auth):
     "process a stream of events, never raising for a single event"
     for line in lines:
-        event = parse_event(line)
-        if event is None:
-            continue
         try:
+            event = parse_event(line)
+            if event is None:
+                continue
             config = load_config(config_path)
+            engine = Engine(
+                config,
+                client,
+                runner,
+                auth,
+                list_hints(
+                    config.hint_command, dry_run=getattr(client, "dry_run", False)
+                ),
+            )
+            results = engine.process(event)
         except ConfigError as exc:
             LOG.error("%s", exc)
             continue
-        engine = Engine(
-            config,
-            client,
-            runner,
-            auth,
-            list_hints(config.hint_command, dry_run=getattr(client, "dry_run", False)),
-        )
-        try:
-            results = engine.process(event)
         except Exception as exc:  # noqa: BLE001 - the stream must survive anything
             LOG.exception("error while processing an event: %s", exc)
             continue

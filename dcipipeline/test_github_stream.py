@@ -168,6 +168,7 @@ def pr_payload(
     "build a pull_request payload"
     payload = {
         "action": action,
+        "number": number,
         "pull_request": {
             "number": number,
             "html_url": PR_HTML_URL,
@@ -207,6 +208,14 @@ def review_comment_payload(body="/dci-rerun"):
         "repository": repo_payload(),
         "sender": {"login": "alice"},
     }
+
+
+def review_thread_payload(action="resolved"):
+    "build a raw pull_request_review_thread payload without an event name"
+    payload = pr_payload()
+    payload["action"] = action
+    payload["thread"] = {"id": 1, "line": 1, "comments": []}
+    return payload
 
 
 def make_event(payload):
@@ -324,6 +333,21 @@ def test_parse_event_skips_reviews_and_review_comments():
     del payload["pull_request"]["base"]
     del payload["pull_request"]["head"]
     assert github_stream.parse_event(json.dumps(payload)) is None
+
+
+def test_parse_event_skips_a_raw_pull_request_review_thread():
+    # a raw review thread payload (no event name key) carries a thread, an
+    # action and a full pull_request but must not be taken for a pull
+    # request event
+    payload = review_thread_payload(action="resolved")
+    assert "X-GitHub-Event" not in payload
+    assert github_stream.parse_event(json.dumps(payload)) is None
+    payload = review_thread_payload(action="unresolved")
+    assert github_stream.parse_event(json.dumps(payload)) is None
+    # a raw pull_request body, which carries a top-level number, still
+    # normalizes
+    event = make_event(pr_payload())
+    assert event["kind"] == github_stream.KIND_PULL_REQUEST
 
 
 def test_parse_event_uses_the_event_name_when_present():
@@ -553,6 +577,14 @@ repos: {}
 """
     config = github_stream.load_config(str(write_config(tmp_path, text)))
     assert config.hint_command == ("printf", "Lab\nWorkload\n")
+
+
+def test_config_rejects_an_empty_hint_command(tmp_path):
+    for value in ("[]", '""', '"   "'):
+        path = write_config(tmp_path, f"hint_command: {value}\nrepos: {{}}\n")
+        with pytest.raises(github_stream.ConfigError) as excinfo:
+            github_stream.load_config(str(path))
+        assert "hint_command must not be empty" in str(excinfo.value)
 
 
 def test_config_default_hint_command(tmp_path):
@@ -1019,6 +1051,90 @@ repos:
     engine, client, runner, auth = build(tmp_path, text, auth=FakeAuth(False))
     engine.process(make_event(pr_payload(action="opened", sender="mallory")))
     assert auth.requests == []
+    assert runner.calls == [("echo launch", None)]
+    assert client.calls == []
+
+
+def test_pull_request_events_do_not_inherit_the_repository_auth(tmp_path):
+    text = """
+commands:
+  launch: echo launch
+repos:
+  "dci-labs/grout":
+    voting: false
+    auth:
+      orgs: [dci-labs]
+    rules:
+      - name: opened
+        only_if: '^opened$'
+        action: run
+        command: launch
+"""
+    engine, client, runner, auth = build(tmp_path, text, auth=FakeAuth(False))
+    engine.process(make_event(pr_payload(action="opened", sender="mallory")))
+    assert auth.requests == []
+    assert runner.calls == [("echo launch", None)]
+
+
+PR_RULE_AUTH_CONFIG = """
+commands:
+  launch: echo launch
+repos:
+  "dci-labs/grout":
+    voting: false
+    rules:
+      - name: opened
+        only_if: '^opened$'
+        auth:
+          orgs: [dci-labs]
+        action: run
+        command: launch
+"""
+
+
+def test_rule_level_auth_allows_a_pull_request_event(tmp_path):
+    engine, client, runner, auth = build(
+        tmp_path, PR_RULE_AUTH_CONFIG, auth=FakeAuth(True)
+    )
+    engine.process(make_event(pr_payload(action="opened", sender="alice")))
+    assert len(auth.requests) == 1
+    assert runner.calls == [("echo launch", None)]
+    assert client.calls == []
+
+
+def test_rule_level_auth_denies_a_pull_request_event(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    engine, client, runner, _ = build(
+        tmp_path, PR_RULE_AUTH_CONFIG, auth=FakeAuth(False)
+    )
+    results = engine.process(make_event(pr_payload(action="opened", sender="mallory")))
+    assert runner.calls == []
+    assert client.calls == []
+    assert results == []
+    assert "mallory unauthorized for rule opened" in caplog.text
+
+
+def test_a_denied_pull_request_rule_lets_a_later_rule_handle_the_event(tmp_path):
+    text = """
+commands:
+  launch: echo launch
+repos:
+  "dci-labs/grout":
+    voting: false
+    rules:
+      - name: opened
+        only_if: '^opened$'
+        auth:
+          orgs: [dci-labs]
+        action: run
+        command: launch
+      - name: catch-all
+        only_if: '^opened$'
+        action: run
+        command: launch
+"""
+    engine, client, runner, _ = build(tmp_path, text, auth=FakeAuth(False))
+    engine.process(make_event(pr_payload(action="opened", sender="mallory")))
     assert runner.calls == [("echo launch", None)]
     assert client.calls == []
 
@@ -1510,6 +1626,44 @@ def test_process_stream_survives_malformed_events_and_config(tmp_path, caplog):
     assert "skipping malformed event" in caplog.text
     assert "invalid YAML" in caplog.text
     assert "unknown key 'unknown'" in caplog.text
+
+
+def test_process_stream_survives_a_malformed_repository_payload(tmp_path):
+    path = write_config(tmp_path, "hint_command: ['true']\n" + SIMPLE_CONFIG)
+    client = FakeClient()
+    runner = FakeRunner()
+
+    def lines():
+        # a non-mapping repository owner used to raise an AttributeError
+        payload = comment_payload(body="/dci-rerun")
+        payload["repository"] = {
+            "full_name": "dci-labs/unknown",
+            "name": "unknown",
+            "owner": "not a mapping",
+        }
+        yield json.dumps(payload)
+        yield json.dumps(comment_payload(body="/dci-rerun"))
+
+    github_stream.process_stream(lines(), str(path), client, runner, FakeAuth())
+
+    assert runner.calls == [("dci-auto-launch " + PR_HTML_URL, "")]
+
+
+def test_process_stream_rejects_an_empty_hint_command(tmp_path, caplog):
+    path = write_config(tmp_path, SIMPLE_CONFIG)
+    client = FakeClient()
+    runner = FakeRunner()
+
+    def lines():
+        path.write_text("hint_command: []\n" + SIMPLE_CONFIG, encoding="utf-8")
+        yield json.dumps(comment_payload(body="/dci-rerun"))
+        path.write_text(SIMPLE_CONFIG, encoding="utf-8")
+        yield json.dumps(comment_payload(body="/dci-rerun"))
+
+    github_stream.process_stream(lines(), str(path), client, runner, FakeAuth())
+
+    assert "hint_command must not be empty" in caplog.text
+    assert runner.calls == [("dci-auto-launch " + PR_HTML_URL, "")]
 
 
 def test_process_stream_survives_a_client_error(tmp_path, caplog):

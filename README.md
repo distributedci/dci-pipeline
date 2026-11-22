@@ -707,13 +707,13 @@ them. The `--dry-run` mode does not need a token nor a network access.
 `--dry-run` is a preview, not a validation: it performs no GitHub API
 call, runs no shell command (the commands of the rules and the
 `hint_command` are only logged and printed as `+ COMMAND ...` lines), and
-therefore discovers no test hint, so a `Test(@hints):` selector of the
-pull request body cannot match. Because no API call is made, the
-`file_match` and `ignore_files` selectors cannot be evaluated either: the
-changed files of the pull request are unknown and the selectors that need
-them never match. Authorization is assumed to succeed. The pending status
-is not posted (nothing was launched), it is only reported as an intended
-action in the results.
+therefore discovers no test hint, so rules whose selectors depend on
+`@hints` may not match the same way as in a real run. Because no API call
+is made, the `file_match` and `ignore_files` selectors cannot be evaluated
+either: the changed files of the pull request are unknown and the
+selectors that need them never match. Authorization is assumed to succeed.
+The pending status is not posted (nothing was launched), it is only
+reported as an intended action in the results.
 
 A complete commented example is available in
 `examples/github-stream.yml.example`, together with two real life
@@ -784,7 +784,8 @@ Keys of a repository:
 - `skip`: ignore every event of the repository;
 - `skip_labels`: ignore the pull requests carrying one of these labels;
 - `voting`: post the `DCI / DCI Job` commit statuses (default: `true`);
-- `auth`: authorization of the senders, overriding the top level one;
+- `auth`: authorization of the senders of the comment events, overriding
+  the top level one;
 - `pending_description`: description of the pending status;
 - `commands`: commands of the repository, merged with the top level ones;
 - `rules`: the rules of the repository.
@@ -800,7 +801,10 @@ Keys of a rule:
   action;
 - `continue`: keep evaluating the next rules when the rule matched
   (default: `false`);
-- `auth`: authorization of the senders, overriding the repository one;
+- `auth`: authorization of the senders of the comments matched by the
+  rule, which the rule inherits from the repository and then from the
+  top level `auth` unless it defines its own; a pull request event is
+  only checked against the `auth` of the rule itself;
 - the selectors, all optional, all of them must match:
   `match` (comment body, or description of the pull request for a pull
   request event), `match_pr_body` (description of the pull request),
@@ -832,10 +836,17 @@ GitHub API and cached; the cache is keyed on the repository and on the
 sender, so a collaborator of one repository is never trusted on another
 one sharing the same `auth` block. Only the `created` action of an
 `issue_comment` event is handled: editing or deleting a comment never
-dispatches anything. When the sender is not allowed, a
-single comment is posted (`<sender> unauthorized to call <rule name>`)
-and nothing is launched. The authorization is not checked for the pull
-request events.
+dispatches anything. When the sender of a comment is not allowed, a single
+comment is posted (`<sender> unauthorized to call <rule name>`) and
+nothing else is dispatched for the event, not even a later rule.
+
+The pull request events are authorized differently: the repository and
+the top level `auth` are not inherited, only an explicit `auth` on the
+rule applies, so enabling the authorization on a repository never filters
+its pull request events. A pull request event refused by the `auth` of a
+rule is treated as a rule that does not apply: nothing is posted, no
+status is set, and the next rule is evaluated, down to a catch-all rule
+without `auth` if the repository defines one.
 
 ### Commit statuses
 
