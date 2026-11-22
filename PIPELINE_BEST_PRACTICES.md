@@ -35,6 +35,27 @@ Two conventions make this work:
 `dci-pipeline-lint` encodes these practices as automated checks. The
 sections below describe what it verifies and how to fix each finding.
 
+## Make runs reproducible
+
+A failing run is only useful if it can be replayed. `dci-pipeline`
+supports this by attaching a `cmdline.txt` file to every job it
+creates, at creation time, so the file exists even if the job is killed
+right away. It contains the exact launch command line with every
+argument shell-quoted.
+
+To keep that file usable:
+
+- **Pass JSON values quoted on the command line**, for example
+  `job:ansible_extravars='{"user":"jdoe"}'`. The shell strips the quotes,
+  and `dci-pipeline` quotes the argument again in the attached file, so
+  the recorded line runs as is.
+- **Never put secrets on the command line.** Prefer vaulted variables or
+  files. Redaction masks what it can, but a secret should not be needed
+  there in the first place.
+- **Reproduce a failing run with the attached command line**, from the
+  same working directory and environment, rather than by retyping the
+  command.
+
 ## Running the linter
 
 Run the linter on your pipeline files before committing:

@@ -17,6 +17,7 @@ import datetime
 import json
 import logging
 import os
+import shlex
 import shutil
 import signal
 import sys
@@ -63,6 +64,9 @@ TOPDIR = os.getenv(
 
 _JOB_FINAL_STATUSES = {"error", "success", "failure", "killed"}
 _JOB_PRODUCT_STATUSES = {"running"}
+
+CMDLINE_FILE_NAME = "cmdline.txt"
+CMDLINE_FILE_MIME = "text/plain"
 
 
 class DciError(Exception):
@@ -601,6 +605,7 @@ def schedule_job(
     prev_components=None,
     previous_job_id=None,
     pipeline_id=None,
+    cmdline=None,
 ):
     if tags is None:
         tags = []
@@ -684,6 +689,7 @@ def schedule_job(
                 comment="job scheduled",
                 job_id=job_id,
             )
+            upload_cmdline_file(remoteci_context, job_id, cmdline)
             for c in scheduled_job.json()["job"]["components"]:
                 if c["id"] not in [c["id"] for c in components]:
                     log.error(
@@ -759,6 +765,18 @@ def build_cmdline(jobdef):
     log.info('cmdline="%s"' % cmd)
 
     return cmd
+
+
+def build_launch_cmdline(args):
+    """Build the shell command line relaunching the current command.
+
+    Each argument is treated as an opaque string and shell-quoted
+    individually, so that the resulting line can be executed verbatim by
+    a shell to reproduce the exact same argv. No JSON parsing or
+    re-serialisation is done: the recorded line is the exact command line
+    as typed by the user.
+    """
+    return " ".join(shlex.quote(str(arg)) for arg in args)
 
 
 def check_stats(stats):
@@ -840,6 +858,76 @@ def upload_ansible_log(context, ansible_log_dir, jobdef):
                 os.remove(redacted_path)
     else:
         log.error("ansible.log not found in %s" % ansible_log)
+
+
+def job_has_cmdline_file(context, job_id):
+    """Best-effort check for an already uploaded command line file.
+
+    Returns False when the answer cannot be determined so that the caller
+    falls back to uploading the file.
+    """
+    try:
+        resp = dci_file.list(context, job_id=job_id)
+    except Exception as e:
+        log.debug("unable to list files for job %s: %s" % (job_id, e))
+        return False
+    if getattr(resp, "status_code", None) != 200:
+        return False
+    try:
+        payload = resp.json()
+    except Exception as e:
+        log.debug("unable to decode file list for job %s: %s" % (job_id, e))
+        return False
+    if isinstance(payload, dict):
+        files = payload.get("files", [])
+    elif isinstance(payload, list):
+        files = payload
+    else:
+        return False
+    if not isinstance(files, list):
+        return False
+    for entry in files:
+        if isinstance(entry, dict) and entry.get("name") == CMDLINE_FILE_NAME:
+            return True
+    return False
+
+
+def upload_cmdline_file(context, job_id, cmdline):
+    """Attach the launch command line to a DCI job.
+
+    The file is uploaded as soon as the job is created so that it is
+    available even for a job killed right after its creation. Failures are
+    only logged: attaching this file must never change the pipeline
+    outcome nor delay the job start. The retrying dci() wrapper is
+    deliberately not used here.
+    """
+    if not cmdline:
+        return
+    if job_has_cmdline_file(context, job_id):
+        log.debug("cmdline.txt already attached to job %s" % job_id)
+        return
+    tmpdir = tempfile.mkdtemp(prefix="dci-pipeline-cmdline")
+    try:
+        path = os.path.join(tmpdir, CMDLINE_FILE_NAME)
+        with open(path, "w") as f:
+            f.write(cmdline + "\n")
+        redacted_path = None
+        if dci_redact.should_redact(redact=True):
+            redacted_path = os.path.join(tmpdir, ".%s.redacted" % CMDLINE_FILE_NAME)
+            dci_redact.redact_file(path, redacted_path)
+        dci_file.create(
+            context,
+            CMDLINE_FILE_NAME,
+            file_path=redacted_path or path,
+            mime=CMDLINE_FILE_MIME,
+            job_id=job_id,
+        )
+    except Exception as e:
+        log.warning(
+            "unable to attach %s to job %s: %s" % (CMDLINE_FILE_NAME, job_id, e)
+        )
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def update_job_info(context, jobdef):
@@ -1320,6 +1408,7 @@ def run_stage(
             dci_pipeline_user_context,
             previous_job_id=previous_job_id,
             pipeline_id=options["pipeline_id"],
+            cmdline=options.get("cmdline"),
         )
 
         if not jobdef["job_info"]:
@@ -1365,6 +1454,7 @@ def run_stage(
                     jobdef["job_info"]["job"]["components"],
                     previous_job_id=_job_id,
                     pipeline_id=options["pipeline_id"],
+                    cmdline=options.get("cmdline"),
                 )
 
                 if not jobdef["job_info"]:
@@ -1415,10 +1505,15 @@ PIPELINE = []
 
 
 def main(args=sys.argv):
+    # Record the exact launch command line before doing anything else so
+    # that it is available even when we exit early from get_config().
+    cmdline = build_launch_cmdline(args)
+    log.debug("launch cmdline: %s" % cmdline)
     # Clear the pipeline list safely
     PIPELINE.clear()
     signal_handler = SignalHandler()
     config_dir, pipeline, options = get_config(args)
+    options["cmdline"] = cmdline
     PIPELINE.extend(pipeline)
 
     for stage in get_stages_of_jobdefs(pipeline):

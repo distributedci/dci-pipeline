@@ -189,6 +189,28 @@ If you need to call the `ansible-playbook` command in your own playbook, the tas
 `/var/lib/dci-pipeline/<job name>/<job id>`. Various log files are
 saved in this directory to ease debugging the DCI jobs.
 
+### Reproducing a run
+
+`dci-pipeline` attaches a `cmdline.txt` file (MIME type `text/plain`) to
+every job it creates, as soon as the job is created. The file is thus
+available while the job runs, and even for a job killed right after its
+creation.
+
+It holds the exact launch command line, with every argument
+shell-quoted. Running it verbatim from the same working directory and
+environment relaunches the same pipeline, with the same job
+definitions, tags and settings:
+
+```ShellSession
+$ dci-download-files cmdline.txt --job_id 2441f3a5-aa97-45e9-8122-36dfc6f17d84
+$ cat cmdline.txt
+dci-pipeline ~/dci/pipelines/my-pipeline.yml 'job:key=a b'
+$ dci-pipeline ~/dci/pipelines/my-pipeline.yml 'job:key=a b'
+```
+
+Secrets appearing on the command line are redacted in the attached file
+when redaction is enabled.
+
 ### Sharing information between jobs
 
 The only way to share information between jobs is to use the
@@ -448,6 +470,12 @@ $ dci-pipeline-schedule ocp-vanilla workload \
     workload:ansible_extravars='{"user":"jdoe","password":"Pass123$"}'
 ...
 ```
+
+A JSON value must be passed quoted on the command line, as in the last
+line above. The shell removes the quotes before `dci-pipeline` sees the
+argument, and the file attached to the job (see
+[Reproducing a run](#reproducing-a-run)) quotes it again, so the
+recorded command line stays reproducible as is.
 
 ### Previous Topic
 
@@ -1019,6 +1047,12 @@ components:
 ```
 
 This rebuilt pipeline can be used as a regular one with the `dci-pipeline` command.
+
+Note that the supported way to reproduce a run is the `cmdline.txt`
+file attached to every job and described in
+[Reproducing a run](#reproducing-a-run). `dci-rebuild-pipeline`
+complements it by pinning the component versions to the ones used by
+the original run.
 
 If you do not specify `--job_id`, `dci-rebuild-pipeline` is using the last job that has run.
 
