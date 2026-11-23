@@ -737,7 +737,7 @@ class TestUploadCmdlineFile(unittest.TestCase):
             return mock.MagicMock(status_code=201)
 
         with mock.patch(
-            "dcipipeline.main.dci_file.list",
+            "dcipipeline.main.dci_job.list_files",
             return_value=self._file_list_response([]),
         ), mock.patch(
             "dcipipeline.main.dci_file.create", side_effect=create
@@ -777,7 +777,7 @@ class TestUploadCmdlineFile(unittest.TestCase):
         with mock.patch(
             "dcipipeline.main.tempfile.mkdtemp", side_effect=fake_mkdtemp
         ), mock.patch(
-            "dcipipeline.main.dci_file.list",
+            "dcipipeline.main.dci_job.list_files",
             return_value=self._file_list_response([]),
         ), mock.patch(
             "dcipipeline.main.dci_file.create", side_effect=create
@@ -801,7 +801,7 @@ class TestUploadCmdlineFile(unittest.TestCase):
 
     def test_idempotent_when_already_uploaded(self):
         with mock.patch(
-            "dcipipeline.main.dci_file.list",
+            "dcipipeline.main.dci_job.list_files",
             return_value=self._file_list_response([{"name": "cmdline.txt"}]),
         ), mock.patch("dcipipeline.main.dci_file.create") as m_create, mock.patch(
             "dcipipeline.main.dci_redact.should_redact", return_value=False
@@ -811,7 +811,7 @@ class TestUploadCmdlineFile(unittest.TestCase):
 
     def test_list_failure_still_uploads(self):
         with mock.patch(
-            "dcipipeline.main.dci_file.list", side_effect=Exception("boom")
+            "dcipipeline.main.dci_job.list_files", side_effect=Exception("boom")
         ), mock.patch("dcipipeline.main.dci_file.create") as m_create, mock.patch(
             "dcipipeline.main.dci_redact.should_redact", return_value=False
         ):
@@ -820,7 +820,7 @@ class TestUploadCmdlineFile(unittest.TestCase):
 
     def test_create_failure_only_warns(self):
         with mock.patch(
-            "dcipipeline.main.dci_file.list",
+            "dcipipeline.main.dci_job.list_files",
             return_value=self._file_list_response([]),
         ), mock.patch(
             "dcipipeline.main.dci_file.create", side_effect=Exception("boom")
@@ -832,7 +832,7 @@ class TestUploadCmdlineFile(unittest.TestCase):
             upload_cmdline_file(self.context, "job1", "dci-pipeline a-pipeline.yml")
 
     def test_no_cmdline_does_nothing(self):
-        with mock.patch("dcipipeline.main.dci_file.list") as m_list, mock.patch(
+        with mock.patch("dcipipeline.main.dci_job.list_files") as m_list, mock.patch(
             "dcipipeline.main.dci_file.create"
         ) as m_create:
             upload_cmdline_file(self.context, "job1", "")
@@ -840,7 +840,7 @@ class TestUploadCmdlineFile(unittest.TestCase):
         m_create.assert_not_called()
 
     def test_none_cmdline_does_nothing(self):
-        with mock.patch("dcipipeline.main.dci_file.list") as m_list, mock.patch(
+        with mock.patch("dcipipeline.main.dci_job.list_files") as m_list, mock.patch(
             "dcipipeline.main.dci_file.create"
         ) as m_create:
             upload_cmdline_file(self.context, "job1", None)
@@ -898,7 +898,7 @@ class TestScheduleJobAttachesCmdline(unittest.TestCase):
         ), mock.patch(
             "dcipipeline.main.dci_jobstate.create"
         ) as m_state, mock.patch(
-            "dcipipeline.main.dci_file.list",
+            "dcipipeline.main.dci_job.list_files",
             return_value=self._response(200, {"files": files}),
         ), mock.patch(
             "dcipipeline.main.dci_file.create", side_effect=create_error
@@ -970,7 +970,7 @@ class TestScheduleJobAttachesCmdline(unittest.TestCase):
         ), mock.patch(
             "dcipipeline.main.dci_jobstate.create"
         ), mock.patch(
-            "dcipipeline.main.dci_file.list"
+            "dcipipeline.main.dci_job.list_files"
         ) as m_list, mock.patch(
             "dcipipeline.main.dci_file.create"
         ) as m_create:

@@ -863,15 +863,21 @@ def upload_ansible_log(context, ansible_log_dir, jobdef):
 def job_has_cmdline_file(context, job_id):
     """Best-effort check for an already uploaded command line file.
 
-    Returns False when the answer cannot be determined so that the caller
-    falls back to uploading the file.
+    Lists the job's files through ``GET /jobs/<id>/files``. Returns False
+    when the answer cannot be determined so that the caller falls back to
+    uploading the file.
     """
     try:
-        resp = dci_file.list(context, job_id=job_id)
+        resp = dci_job.list_files(context, id=job_id)
     except Exception as e:
         log.debug("unable to list files for job %s: %s" % (job_id, e))
         return False
-    if getattr(resp, "status_code", None) != 200:
+    status_code = getattr(resp, "status_code", None)
+    if status_code != 200:
+        log.debug(
+            "unable to list files for job %s: unexpected status %s"
+            % (job_id, status_code)
+        )
         return False
     try:
         payload = resp.json()
