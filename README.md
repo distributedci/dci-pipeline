@@ -202,7 +202,8 @@ environment relaunches the same pipeline, with the same job
 definitions, tags and settings:
 
 ```ShellSession
-$ dci-download-files cmdline.txt --job_id 2441f3a5-aa97-45e9-8122-36dfc6f17d84
+$ dcictl job-list-file 2441f3a5-aa97-45e9-8122-36dfc6f17d84
+$ dcictl job-download-file 2441f3a5-aa97-45e9-8122-36dfc6f17d84 --file-id <cmdline-file-id> --target cmdline.txt
 $ cat cmdline.txt
 dci-pipeline ~/dci/pipelines/my-pipeline.yml 'job:key=a b'
 $ dci-pipeline ~/dci/pipelines/my-pipeline.yml 'job:key=a b'
