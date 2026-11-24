@@ -1129,39 +1129,50 @@ class Engine:
 
     def matches(self, rule, event):
         "return True if all the selectors of the rule match the event"
+
+        def no_match(selector):
+            LOG.debug(
+                "%s#%s: rule %s not selected (%s)",
+                event.get("repo"),
+                event.get("number"),
+                rule.name,
+                selector,
+            )
+            return False
+
         sender = (event.get("sender") or "").lower()
         if rule.ignore_senders:
             ignored = {name.lower() for name in rule.ignore_senders}
             if sender in ignored:
-                return False
+                return no_match("ignore_senders")
         if rule.only_if is not None and not self.pattern(rule, "only_if", event).search(
             event.get("action") or ""
         ):
-            return False
+            return no_match("only_if")
         if rule.base_ref is not None and not self.pattern(
             rule, "base_ref", event
         ).search(event.get("base_ref") or ""):
-            return False
+            return no_match("base_ref")
         if rule.merged is not None and bool(event.get("merged")) != rule.merged:
-            return False
+            return no_match("merged")
         if rule.match_label is not None:
             label = event.get("label") or ""
             if not label or not self.pattern(rule, "match_label", event).search(label):
-                return False
+                return no_match("match_label")
         if rule.match is not None and not self.pattern(rule, "match", event).search(
             event.get("body") or ""
         ):
-            return False
+            return no_match("match")
         if rule.match_pr_body is not None or rule.no_match_pr_body is not None:
             pr_body = self.pr_body(event)
             if rule.match_pr_body is not None and not self.pattern(
                 rule, "match_pr_body", event
             ).search(pr_body):
-                return False
+                return no_match("match_pr_body")
             if rule.no_match_pr_body is not None and self.pattern(
                 rule, "no_match_pr_body", event
             ).search(pr_body):
-                return False
+                return no_match("no_match_pr_body")
         if rule.file_match is not None or rule.ignore_files is not None:
             files = self.files(event)
             if rule.ignore_files is not None:
@@ -1170,7 +1181,7 @@ class Engine:
             if rule.file_match is not None:
                 match = self.pattern(rule, "file_match", event)
                 if not any(match.search(name) for name in files):
-                    return False
+                    return no_match("file_match")
         return True
 
     def authorized(self, rule, repo, event):
@@ -1341,11 +1352,19 @@ class Engine:
 
 def process_stream(lines, config_path, client, runner, auth):
     "process a stream of events, never raising for a single event"
-    for line in lines:
+    for line_number, line in enumerate(lines, 1):
+        LOG.debug("received stream line %s", line_number)
         try:
             event = parse_event(line)
             if event is None:
                 continue
+            LOG.debug(
+                "%s#%s: processing %s event, action=%s",
+                event.get("repo"),
+                event.get("number"),
+                event.get("kind"),
+                event.get("action"),
+            )
             config = load_config(config_path)
             engine = Engine(
                 config,
@@ -1370,6 +1389,8 @@ def process_stream(lines, config_path, client, runner, auth):
                 event.get("number"),
                 ", ".join(item.get("action", "") for item in results),
             )
+        else:
+            LOG.debug("%s#%s: no rule selected", event.get("repo"), event.get("number"))
 
 
 def main(argv=None):
@@ -1386,6 +1407,12 @@ def main(argv=None):
         "--config",
         default=None,
         help=f"configuration file (default: ${CONFIG_ENV} or {DEFAULT_CONFIG_PATH})",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="log received events and rule selection decisions",
     )
     parser.add_argument(
         "--dry-run",
@@ -1405,7 +1432,8 @@ def main(argv=None):
     args = parser.parse_args(argv[1:])
 
     logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
     )
     client = GitHubClient(dry_run=args.dry_run)
     process_stream(

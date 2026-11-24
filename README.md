@@ -704,6 +704,11 @@ variable to use another one, and `--dry-run` to print the intended GitHub
 API calls, shell commands and test hint discovery instead of executing
 them. The `--dry-run` mode does not need a token nor a network access.
 
+Use `--verbose` (or `-v`) to log every received stream line, unsupported
+or unconfigured events, and the selector that rejects each rule. Event
+bodies are not included in these selection messages. This also enables
+existing debug logs, including commands that are executed.
+
 `--dry-run` is a preview, not a validation: it performs no GitHub API
 call, runs no shell command (the commands of the rules and the
 `hint_command` are only logged and printed as `+ COMMAND ...` lines), and

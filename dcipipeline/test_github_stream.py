@@ -1865,3 +1865,51 @@ def test_readme_documents_the_tool():
 
 
 # test_github_stream.py ends here
+
+
+def test_verbose_cli_logs_unselected_stream_lines():
+    command = [github_stream.sys.executable, github_stream.__file__]
+    payload = json.dumps({"event": "push", "body": "private-payload-marker"}) + "\n"
+    verbose = github_stream.subprocess.run(
+        command + ["--verbose"], input=payload, capture_output=True, text=True
+    )
+    assert verbose.returncode == 0
+    assert "received stream line 1" in verbose.stderr
+    assert "skipping unsupported GitHub event 'push'" in verbose.stderr
+    assert "private-payload-marker" not in verbose.stderr
+    normal = github_stream.subprocess.run(
+        command, input=payload, capture_output=True, text=True
+    )
+    assert normal.returncode == 0
+    assert "received stream line" not in normal.stderr
+
+
+def test_unselected_rule_logs_selector_without_event_body(tmp_path, caplog):
+    caplog.set_level(logging.DEBUG, logger=github_stream.LOG.name)
+    config = write_config(
+        tmp_path,
+        """
+commands:
+  check: echo check
+repos:
+  "dci-labs/grout":
+    voting: false
+    rules:
+      - name: hints
+        match_pr_body: '^TestLab:'
+        command: check
+""",
+    )
+    runner = FakeRunner()
+    github_stream.process_stream(
+        [json.dumps(pr_payload(body="private-payload-marker"))],
+        str(config),
+        FakeClient(),
+        runner,
+        FakeAuth(),
+    )
+    assert "processing pull_request event, action=opened" in caplog.text
+    assert "rule hints not selected (match_pr_body)" in caplog.text
+    assert "no rule selected" in caplog.text
+    assert "private-payload-marker" not in caplog.text
+    assert not runner.calls
