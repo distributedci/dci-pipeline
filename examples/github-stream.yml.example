@@ -46,7 +46,12 @@ auth:
 # posted automatically by the tool when a voting rule did not post a
 # success.
 commands:
+  # dci-auto-launch reads the description of the pull request from its
+  # stdin: every rule running it must set "stdin: pr_body", otherwise no
+  # job is launched.
   launch: dci-auto-launch @url
+  # dci-pipeline-check does not read stdin: a rule running it must not set
+  # "stdin: pr_body".
   check: dci-pipeline-check @url -p my-pool
   no-check: |
     send_pending_msg "waiting for a DCI job"
@@ -76,7 +81,6 @@ repos:
         match: '(?i)^\s*/dci-rerun'
         action: run
         command: check
-        stdin: pr_body
         pending_description: waiting for a DCI job
 
       # "recheck" or "retest" comment: launch the check again.
@@ -84,7 +88,6 @@ repos:
         match: '(?i)^\s*re(check|test)\s*$'
         action: run
         command: check
-        stdin: pr_body
 
       # A comment from somebody outside of the DCI organizations is
       # refused with a single comment and nothing is launched.
@@ -94,22 +97,23 @@ repos:
         action: ignore
 
       # New or updated pull request with a Test<hint>: string: the hints
-      # are those returned by hint_command.
+      # are those returned by hint_command. The description is passed to
+      # dci-auto-launch on its stdin, hence "command: launch".
       - name: hints
         only_if: '^(opened|synchronize|reopened)$'
         base_ref: '^(main|master)$'
         match_pr_body: '^Test(@hints):'
         action: run
-        command: check
+        command: launch
         stdin: pr_body
 
-      # New or updated pull request asking for no check at all.
+      # New or updated pull request asking for no check at all. This
+      # command does not read stdin, so the rule does not set it.
       - name: no-check
         only_if: '^(opened|synchronize|reopened)$'
         match_pr_body: '(?i)^\s*Test-Hints?:\s*no-check'
         action: run
         command: no-check
-        stdin: pr_body
 
   # A second voting repository reusing the settings above.
   "dci-labs/example-bis":
@@ -119,7 +123,6 @@ repos:
         match: '(?i)^\s*re(check|test)\s*$'
         action: run
         command: check
-        stdin: pr_body
 
   # A public repository where DCI does not vote: only the members of the
   # DCI organizations can start a job, and the commits are left untouched.

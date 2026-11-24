@@ -15,6 +15,12 @@ auth:
     - distributedci
 
 commands:
+  # dci-auto-launch reads the description of the pull request from its
+  # stdin: every rule running it must set "stdin: pr_body", otherwise no
+  # job is launched.
+  launch: dci-auto-launch @url
+  # dci-pipeline-check does not read stdin: the rules running these
+  # commands must not set "stdin: pr_body".
   certsuite: dci-pipeline-check @url -p certsuite-green
   preflight: dci-pipeline-check @url -p preflight-green
   ocp: dci-pipeline-check @url -p openshift
@@ -31,14 +37,25 @@ repos:
     auth:
       collaborator: true
     rules:
+      # New or updated pull request asking for specific jobs: dci-auto-launch
+      # gets the description of the pull request on its stdin.
+      - name: hints
+        only_if: '^(opened|synchronize|reopened)$'
+        match_pr_body: '^Test(@hints):'
+        action: run
+        command: launch
+        stdin: pr_body
       - name: dci-rerun
         match: '(?i)^\s*/dci-rerun'
         action: run
         command: certsuite
+      # "recheck"/"retest": launch the jobs described by the pull request,
+      # with the description on the stdin of dci-auto-launch.
       - name: recheck
         match: '(?i)^\s*re(check|test)\s*$'
         action: run
-        command: certsuite
+        command: launch
+        stdin: pr_body
       # The pull request landed: check the merged code.
       - name: merged
         only_if: '^closed$'
@@ -79,6 +96,21 @@ repos:
   "redhatci/ansible-collection-redhatci-ocp":
     voting: false
     rules:
+      # New or updated pull request asking for specific jobs: the
+      # description goes to the stdin of dci-auto-launch.
+      - name: hints
+        only_if: '^(opened|synchronize|reopened)$'
+        match_pr_body: '^Test(@hints):'
+        action: run
+        command: launch
+        stdin: pr_body
+      # "recheck"/"retest": launch the jobs described by the pull request,
+      # the description being fed to dci-auto-launch on its stdin.
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: launch
+        stdin: pr_body
       - name: preflight
         only_if: '^(opened|synchronize|reopened)$'
         file_match: 'roles/preflight'

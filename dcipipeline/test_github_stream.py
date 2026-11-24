@@ -1367,6 +1367,40 @@ def test_stdin_pr_body_uses_the_description_for_a_comment_event(tmp_path):
     assert runner.calls == [("dci-auto-launch " + PR_HTML_URL, "TestLab: ocp-vanilla")]
 
 
+PR_BODY_CONFIG = """
+commands:
+  launch: dci-auto-launch @url
+repos:
+  "dci-labs/grout":
+    voting: false
+    rules:
+      - name: hints
+        only_if: '^(opened|synchronize|reopened)$'
+        match_pr_body: '^Test(@hints):'
+        action: run
+        command: launch
+        stdin: pr_body
+"""
+
+
+def test_stdin_pr_body_feeds_the_exact_description_to_the_command(tmp_path):
+    # dci-auto-launch parses the description of the pull request from its
+    # stdin: the command must receive the body verbatim.
+    body = "TestLab: ocp-vanilla\n\nDetails: some context"
+    runner = FakeRunner()
+    engine, _, _, _ = build(tmp_path, PR_BODY_CONFIG, runner=runner, hints=("Lab",))
+    engine.process(make_event(pr_payload(action="opened", body=body)))
+    assert runner.calls == [("dci-auto-launch " + PR_HTML_URL, body)]
+
+
+def test_launch_rule_without_stdin_does_not_receive_the_description(tmp_path):
+    text = PR_BODY_CONFIG.replace("        stdin: pr_body\n", "")
+    runner = FakeRunner()
+    engine, _, _, _ = build(tmp_path, text, runner=runner, hints=("Lab",))
+    engine.process(make_event(pr_payload(action="opened", body="TestLab: ocp-vanilla")))
+    assert runner.calls == [("dci-auto-launch " + PR_HTML_URL, None)]
+
+
 #
 # AC9: the shell helpers of the command runner
 #

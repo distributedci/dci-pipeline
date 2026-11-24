@@ -738,6 +738,9 @@ auth:
     - distributedci
 
 commands:
+  # dci-auto-launch parses the description of the pull request from its
+  # stdin: a rule running it must set "stdin: pr_body", otherwise no job is
+  # launched.
   launch: dci-auto-launch @url
   no-check: |
     send_pending_msg "waiting for a DCI job"
@@ -756,14 +759,13 @@ repos:
       - name: dci-rerun
         match: '(?i)^\s*/dci-rerun'
         action: run
-        command: check
+        command: launch
         stdin: pr_body
       - name: no-check
         only_if: '^(opened|synchronize|reopened)$'
         match_pr_body: '(?i)^\s*Test-Hints?:\s*no-check'
         action: run
         command: no-check
-        stdin: pr_body
 ```
 
 Top level keys:
@@ -773,6 +775,10 @@ Top level keys:
   runs with `bash`, the `@` template variables are expanded, and the
   `send_pending_msg`, `send_success_msg` and `send_comment` helpers
   record the actions to perform once the command completed.
+  `dci-auto-launch` parses the description of the pull request from its
+  stdin — a rule running it must set `stdin: pr_body`, otherwise no job
+  is launched. `dci-pipeline-check` does not read stdin and must not be
+  given it.
 - `hint_command`: command returning the handled test hint names, used by
   the `@hints` template variable (default:
   `dci-auto-launch --list-sections`).
@@ -801,7 +807,10 @@ Keys of a rule:
 - `action`: `run` (run a command), `comment` (post a comment) or `ignore`
   (do nothing);
 - `command`: name of the command to run, `stdin`: `none` (default) or
-  `pr_body` to give the description of the pull request to the command;
+  `pr_body` to give the description of the pull request to the command.
+  `pr_body` is required by every rule running `dci-auto-launch`, which
+  parses the description of the pull request from its stdin: without it,
+  no job is launched;
 - `comment`: comment to post, before running the command for the `run`
   action;
 - `continue`: keep evaluating the next rules when the rule matched
