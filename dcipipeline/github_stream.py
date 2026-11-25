@@ -1250,6 +1250,29 @@ class Engine:
             result = self.runner.command_pr_body(code, self.pr_body(event))
         else:
             result = self.runner.command(code)
+        if not getattr(self.runner, "dry_run", False):
+            for stream, output in (
+                ("stdout", result.stdout),
+                ("stderr", result.stderr),
+            ):
+                for line in output.splitlines():
+                    LOG.info(
+                        "%s#%s: command %s (%s) %s: %s",
+                        event.get("repo"),
+                        event.get("number"),
+                        rule.command,
+                        rule.name,
+                        stream,
+                        line,
+                    )
+            LOG.info(
+                "%s#%s: command %s (%s) exited with code %s",
+                event.get("repo"),
+                event.get("number"),
+                rule.command,
+                rule.name,
+                result.rc,
+            )
         results.append({"rule": rule.name, "action": "command", "rc": result.rc})
         description = self.pending_description(rule, repo, event)
         emitted_success = self.replay(

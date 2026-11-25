@@ -1947,3 +1947,41 @@ repos:
     assert "no rule selected" in caplog.text
     assert "private-payload-marker" not in caplog.text
     assert not runner.calls
+
+
+@pytest.mark.parametrize("exit_code", [0, 3])
+def test_command_output_and_exit_code_are_logged(tmp_path, caplog, exit_code):
+    caplog.set_level(logging.INFO, logger=github_stream.LOG.name)
+    config = yaml.safe_load(SIMPLE_CONFIG)
+    config["commands"]["launch"] = (
+        "printf 'first line\\nsecond line\\n'; "
+        "printf 'diagnostic\\n' >&2; "
+        f"exit {exit_code}"
+    )
+    engine, _, _, _ = build(
+        tmp_path,
+        yaml.safe_dump(config),
+        runner=github_stream.CommandRunner(),
+    )
+    results = engine.process(make_event(comment_payload()))
+    assert "command launch (dci-rerun) stdout: first line" in caplog.text
+    assert "command launch (dci-rerun) stdout: second line" in caplog.text
+    assert "command launch (dci-rerun) stderr: diagnostic" in caplog.text
+    assert f"exited with code {exit_code}" in caplog.text
+    assert f"{REPO}#42:" in caplog.text
+    assert any(item.get("rc") == exit_code for item in results)
+
+
+def test_dry_run_does_not_log_a_command_exit(tmp_path, caplog):
+    caplog.set_level(logging.INFO, logger=github_stream.LOG.name)
+    client = FakeClient()
+    client.dry_run = True
+    engine, _, _, _ = build(
+        tmp_path,
+        SIMPLE_CONFIG,
+        client=client,
+        runner=github_stream.CommandRunner(dry_run=True),
+    )
+    engine.process(make_event(comment_payload()))
+    assert "would run command" in caplog.text
+    assert "exited with code" not in caplog.text

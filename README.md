@@ -704,6 +704,11 @@ variable to use another one, and `--dry-run` to print the intended GitHub
 API calls, shell commands and test hint discovery instead of executing
 them. The `--dry-run` mode does not need a token nor a network access.
 
+After each rule command finishes, its stdout, stderr and exit code are
+logged at INFO level, with the repository, command name and rule name.
+This includes successful commands and does not require `--verbose`.
+Output is captured while the command runs and logged when it completes.
+
 Use `--verbose` (or `-v`) to log every received stream line, unsupported
 or unconfigured events, and the selector that rejects each rule. Event
 bodies are not included in these selection messages. This also enables
