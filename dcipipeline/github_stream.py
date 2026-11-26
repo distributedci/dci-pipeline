@@ -19,8 +19,10 @@
 The tool reads a stream of GitHub webhook payloads on its standard input,
 one JSON object per line, and applies the rules described in a YAML
 configuration file to every event. The default configuration file is
-/etc/dci-pipeline/github-stream.yml and can be overridden with the
---config option or the GITHUB_STREAM_CONF environment variable.
+~/.config/dci-pipeline/github-stream.yml, a per-user file so that several
+accounts on the same host can each run their own service. The --config
+option wins over the GITHUB_STREAM_CONF environment variable, which wins
+over that default.
 
 The configuration is reloaded for every event so that the rules can be
 changed without restarting the service reading the stream.
@@ -69,7 +71,7 @@ STATE_SUCCESS = "success"
 DEFAULT_PENDING_DESCRIPTION = "waiting for a DCI job"
 SUCCESS_DESCRIPTION = "SUCCESS"
 
-DEFAULT_CONFIG_PATH = "/etc/dci-pipeline/github-stream.yml"
+DEFAULT_CONFIG_PATH = "~/.config/dci-pipeline/github-stream.yml"
 CONFIG_ENV = "GITHUB_STREAM_CONF"
 TOKEN_ENV = "GITHUB_TOKEN"
 TOKEN_CONFIG_PATH = "~/.config/dci-pipeline/config"
@@ -711,7 +713,12 @@ def load_config(path=None):
 
 
 def default_config_path():
-    "return the configuration file to use"
+    """return the configuration file to use when --config is not given.
+
+    The precedence is --config, then the GITHUB_STREAM_CONF environment
+    variable, then the per-user DEFAULT_CONFIG_PATH. The path returned here
+    is expanded by load_config().
+    """
     return os.environ.get(CONFIG_ENV) or DEFAULT_CONFIG_PATH
 
 
@@ -1429,7 +1436,10 @@ def main(argv=None):
     parser.add_argument(
         "--config",
         default=None,
-        help=f"configuration file (default: ${CONFIG_ENV} or {DEFAULT_CONFIG_PATH})",
+        help=(
+            "configuration file "
+            f"(default: ${CONFIG_ENV}, then {DEFAULT_CONFIG_PATH})"
+        ),
     )
     parser.add_argument(
         "-v",

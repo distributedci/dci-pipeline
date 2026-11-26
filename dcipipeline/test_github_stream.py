@@ -598,6 +598,53 @@ def test_load_config_uses_environment(tmp_path, monkeypatch):
     assert github_stream.load_config().path == str(path)
 
 
+def test_default_config_path_is_per_user(monkeypatch):
+    monkeypatch.delenv(github_stream.CONFIG_ENV, raising=False)
+    assert (
+        github_stream.DEFAULT_CONFIG_PATH == "~/.config/dci-pipeline/github-stream.yml"
+    )
+    assert github_stream.default_config_path() == github_stream.DEFAULT_CONFIG_PATH
+
+
+def test_default_config_path_honours_the_env_var(monkeypatch):
+    monkeypatch.setenv(github_stream.CONFIG_ENV, "/tmp/x")
+    assert github_stream.default_config_path() == "/tmp/x"
+
+
+def test_default_config_path_expands_the_home_directory(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    conf_dir = home / ".config" / "dci-pipeline"
+    conf_dir.mkdir(parents=True)
+    (conf_dir / "github-stream.yml").write_text("repos: {}\n", encoding="utf-8")
+    monkeypatch.delenv(github_stream.CONFIG_ENV, raising=False)
+    monkeypatch.setenv("HOME", str(home))
+    expected = str(conf_dir / "github-stream.yml")
+    assert github_stream.load_config(github_stream.DEFAULT_CONFIG_PATH).path == expected
+    assert github_stream.load_config().path == expected
+
+
+def test_explicit_config_wins_over_the_env_var(tmp_path, monkeypatch):
+    monkeypatch.setenv(github_stream.CONFIG_ENV, "/nonexistent/from-env.yml")
+    explicit = write_config(tmp_path, "repos: {}\n", name="explicit.yml")
+    stream = tmp_path / "events.jsonl"
+    stream.write_text(json.dumps(comment_payload()), encoding="utf-8")
+    loaded = []
+    real_load_config = github_stream.load_config
+
+    def spy_load_config(path=None):
+        loaded.append(path)
+        return real_load_config(path)
+
+    monkeypatch.setattr(github_stream, "load_config", spy_load_config)
+    assert (
+        github_stream.main(
+            ["dci-github-stream", "--config", str(explicit), "--dry-run", str(stream)]
+        )
+        == 0
+    )
+    assert loaded == [str(explicit)]
+
+
 #
 # AC4/AC5: rule and repository ordering
 #
@@ -1894,8 +1941,21 @@ def test_readme_documents_the_tool():
         "--dry-run",
         "send_pending_msg",
         "DCI / DCI Job",
+        "~/.config/dci-pipeline/github-stream.yml",
     ):
         assert expected in readme
+    assert "/etc/dci-pipeline/github-stream.yml" not in readme
+
+
+def test_documentation_uses_the_per_user_default_config_path():
+    paths = [ROOT / "dcipipeline" / "github_stream.py"]
+    paths.extend(sorted((ROOT / "examples").glob("github-stream*.yml.example")))
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert "/etc/dci-pipeline/github-stream.yml" not in text, path
+    doc = github_stream.__doc__ or ""
+    assert "~/.config/dci-pipeline/github-stream.yml" in doc
+    assert "GITHUB_STREAM_CONF" in doc
 
 
 # test_github_stream.py ends here

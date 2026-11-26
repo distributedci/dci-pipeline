@@ -688,7 +688,7 @@ hand written shell loop by a tested tool with a declarative
 configuration.
 
 ```ShellSession
-$ tail -F /var/log/github-stream.log | dci-github-stream --config /etc/dci-pipeline/github-stream.yml
+$ tail -F /var/log/github-stream.log | dci-github-stream --config ~/.config/dci-pipeline/github-stream.yml
 ```
 
 The tool reads one JSON object per line on its standard input and
@@ -698,11 +698,14 @@ every event, so the rules can be changed without restarting the tool,
 and a malformed event, an API error or an invalid configuration file is
 logged without stopping the stream.
 
-The configuration file is `/etc/dci-pipeline/github-stream.yml` by
-default. Use `--config <file>` or the `GITHUB_STREAM_CONF` environment
-variable to use another one, and `--dry-run` to print the intended GitHub
-API calls, shell commands and test hint discovery instead of executing
-them. The `--dry-run` mode does not need a token nor a network access.
+The configuration file is `~/.config/dci-pipeline/github-stream.yml` by
+default, a per-user file: several accounts on the same host can each run
+their own instance with their own user systemd unit and their own
+configuration. The precedence is `--config <file>`, then the
+`GITHUB_STREAM_CONF` environment variable, then that default. Use
+`--dry-run` to print the intended GitHub API calls, shell commands and
+test hint discovery instead of executing them. The `--dry-run` mode does
+not need a token nor a network access.
 
 After each rule command finishes, its stdout, stderr and exit code are
 logged at INFO level, with the repository, command name and rule name.
