@@ -33,6 +33,10 @@ $ dci-pipeline-auto https://example.com/r/c/dci-openshift-agent/+/30337 <<< <des
 will launch:
 
 dci-pipeline-check https://example.com/r/c/dci-openshift-agent/+/30337 -p <dci-queue> <dci-pipeline args>
+
+%(prog)s --list-sections only prints the section names of the
+configuration file, one per line, and exits. It is meant to be consumed
+by tools that need to know which Test<name>: strings are handled.
 """
 
 import argparse
@@ -45,12 +49,19 @@ import sys
 
 _TEST_PIPELINE_RE = re.compile(r"Test(?P<name>\w+):\s*(?P<args>.*)")
 
+CONFIG_PATH = "~/.config/dci-pipeline/auto.conf"
 
-def load_config(path):
+
+def load_config(path=None):
     "load the config file"
     cfg = configparser.ConfigParser()
-    cfg.read(os.path.expanduser(path))
+    cfg.read(os.path.expanduser(path or CONFIG_PATH))
     return cfg
+
+
+def list_sections(config):
+    "return the section names of the configuration"
+    return config.sections()
 
 
 def cleanup(args):
@@ -75,7 +86,12 @@ def main(argv=sys.argv):
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("url", help="URL of the change")
+    parser.add_argument(
+        "--list-sections",
+        action="store_true",
+        help="print the section names of the configuration file and exit",
+    )
+    parser.add_argument("url", nargs="?", help="URL of the change")
     parser.add_argument(
         "infile",
         nargs="?",
@@ -85,7 +101,15 @@ def main(argv=sys.argv):
     )
     args = parser.parse_args(argv[1:])
 
-    config = load_config("~/.config/dci-pipeline/auto.conf")
+    if args.list_sections:
+        for name in list_sections(load_config()):
+            print(name)
+        return 0
+
+    if not args.url:
+        parser.error("the following arguments are required: url")
+
+    config = load_config()
     pipelines = parse_description(args.infile.read())
     nb = 0
     for name, pipeline_args in pipelines.items():

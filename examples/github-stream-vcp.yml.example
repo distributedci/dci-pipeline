@@ -1,0 +1,130 @@
+---
+# This is a dci-github-stream configuration and not a dci-pipeline job
+# definition, hence the .yml.example suffix. Copy it to the configuration file
+# used by dci-github-stream (see ../README.md).
+# Example configuration for the repositories of a lab where DCI votes on
+# its own projects, and where the checks are launched on demand on the
+# upstream projects.
+#
+# The repositories are matched in the order of this file, so the specific
+# projects come first and the catch-all entry comes last.
+
+auth:
+  orgs:
+    - dci-labs
+    - distributedci
+
+commands:
+  # dci-auto-launch reads the description of the pull request from its
+  # stdin: every rule running it must set "stdin: pr_body", otherwise no
+  # job is launched.
+  launch: dci-auto-launch @url
+  # dci-pipeline-check does not read stdin: the rules running these
+  # commands must not set "stdin: pr_body".
+  certsuite: dci-pipeline-check @url -p certsuite-green
+  preflight: dci-pipeline-check @url -p preflight-green
+  ocp: dci-pipeline-check @url -p openshift
+
+repos:
+
+  # CNF Cert Suite: a pull request labeled with dci-disable is never
+  # checked, and only the collaborators of the project can ask for a check.
+  # DCI does not vote on this upstream repository.
+  "redhat-best-practices-for-k8s/certsuite":
+    voting: false
+    skip_labels:
+      - dci-disable
+    auth:
+      collaborator: true
+    rules:
+      # New or updated pull request asking for specific jobs: dci-auto-launch
+      # gets the description of the pull request on its stdin.
+      - name: hints
+        only_if: '^(opened|synchronize|reopened)$'
+        match_pr_body: '^Test(@hints):'
+        action: run
+        command: launch
+        stdin: pr_body
+      - name: dci-rerun
+        match: '(?i)^\s*/dci-rerun'
+        action: run
+        command: certsuite
+      # "recheck"/"retest": launch the jobs described by the pull request,
+      # with the description on the stdin of dci-auto-launch.
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: launch
+        stdin: pr_body
+      # The pull request landed: check the merged code.
+      - name: merged
+        only_if: '^closed$'
+        merged: true
+        action: run
+        command: certsuite
+      # The dci-disable label was removed: check the pull request now.
+      - name: unlabeled
+        only_if: '^unlabeled$'
+        match_label: '^dci-disable$'
+        action: run
+        command: certsuite
+
+  # OpenShift Preflight: the collaborators of the project can ask for a
+  # recheck, but the /dci-rerun command is reserved to the members of the
+  # DCI organizations because the list of the collaborators is private.
+  "redhat-openshift-ecosystem/openshift-preflight":
+    voting: false
+    auth:
+      collaborator: true
+    rules:
+      - name: dci-rerun
+        match: '(?i)^\s*/dci-rerun'
+        auth:
+          orgs:
+            - dci-labs
+            - redhatci
+        action: run
+        command: preflight
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: preflight
+
+  # The Ansible collection: the roles touched by the pull request select
+  # the job to run. Both rules are evaluated because of "continue: true",
+  # and the markdown files are ignored.
+  "redhatci/ansible-collection-redhatci-ocp":
+    voting: false
+    rules:
+      # New or updated pull request asking for specific jobs: the
+      # description goes to the stdin of dci-auto-launch.
+      - name: hints
+        only_if: '^(opened|synchronize|reopened)$'
+        match_pr_body: '^Test(@hints):'
+        action: run
+        command: launch
+        stdin: pr_body
+      # "recheck"/"retest": launch the jobs described by the pull request,
+      # the description being fed to dci-auto-launch on its stdin.
+      - name: recheck
+        match: '(?i)^\s*re(check|test)\s*$'
+        action: run
+        command: launch
+        stdin: pr_body
+      - name: preflight
+        only_if: '^(opened|synchronize|reopened)$'
+        file_match: 'roles/preflight'
+        ignore_files: '\.md$'
+        action: run
+        command: preflight
+        continue: true
+      - name: certsuite
+        only_if: '^(opened|synchronize|reopened)$'
+        file_match: 'roles/k8s_best_practices_certsuite'
+        ignore_files: '\.md$'
+        action: run
+        command: certsuite
+
+  # Catch-all: the events of the other repositories are ignored.
+  "(dci-labs|distributedci)/.*":
+    skip: true

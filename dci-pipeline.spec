@@ -150,6 +150,7 @@ exit 0
 %endif
 %{_bindir}/dci-pipeline
 %{_bindir}/dci-auto-launch
+%{_bindir}/dci-github-stream
 %{_bindir}/dci-pipeline-schedule
 %{_bindir}/dci-pipeline-check
 %{_bindir}/dci-agent-ctl
