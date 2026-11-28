@@ -51,7 +51,11 @@ To keep that file usable:
   the recorded line runs as is.
 - **Never put secrets on the command line.** Prefer vaulted variables or
   files. Redaction masks what it can, but a secret should not be needed
-  there in the first place.
+  there in the first place. Redaction is on by default (`DCI_REDACT=0`
+  disables it); if your pipeline passes its own credential formats, set
+  `DCI_REDACT_PATTERNS` to a colon-separated list of matching regular
+  expressions so they are masked too — see
+  [Reproducing a run](README.md#reproducing-a-run).
 - **Reproduce a failing run with the attached command line**, from the
   same working directory and environment, rather than by retyping the
   command.

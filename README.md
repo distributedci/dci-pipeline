@@ -209,8 +209,18 @@ dci-pipeline ~/dci/pipelines/my-pipeline.yml 'job:key=a b'
 $ dci-pipeline ~/dci/pipelines/my-pipeline.yml 'job:key=a b'
 ```
 
-Secrets appearing on the command line are redacted in the attached file
-when redaction is enabled.
+Secret redaction is **enabled by default**: the recorded command line is
+redacted before the file is uploaded. Set `DCI_REDACT=0` (or `false`/`no`)
+to disable it. The default patterns mask GitHub tokens, DCI
+`remoteci/<uuid>` and `DCI.*` credentials, and the `auth` field of pull
+secrets (JSON, YAML and escaped forms). To cover your own secret formats,
+set `DCI_REDACT_PATTERNS` to a colon-separated list of regular
+expressions, for example
+`DCI_REDACT_PATTERNS='my_password=\S+:my_token=\w+'`; each match is
+replaced by `***REDACTED***`. Note that this variable replaces the default
+pattern set, so include any default patterns you still need. Values not
+matched by a pattern are kept verbatim so the recorded line stays
+replayable.
 
 ### Sharing information between jobs
 
