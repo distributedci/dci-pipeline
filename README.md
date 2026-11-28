@@ -189,6 +189,39 @@ If you need to call the `ansible-playbook` command in your own playbook, the tas
 `/var/lib/dci-pipeline/<job name>/<job id>`. Various log files are
 saved in this directory to ease debugging the DCI jobs.
 
+### Reproducing a run
+
+`dci-pipeline` attaches a `cmdline.txt` file (MIME type `text/plain`) to
+every job it creates, as soon as the job is created. The file is thus
+available while the job runs, and even for a job killed right after its
+creation.
+
+It holds the exact launch command line, with every argument
+shell-quoted. Running it verbatim from the same working directory and
+environment relaunches the same pipeline, with the same job
+definitions, tags and settings:
+
+```ShellSession
+$ dcictl job-list-file 2441f3a5-aa97-45e9-8122-36dfc6f17d84
+$ dcictl job-download-file 2441f3a5-aa97-45e9-8122-36dfc6f17d84 --file-id <cmdline-file-id> --target cmdline.txt
+$ cat cmdline.txt
+dci-pipeline ~/dci/pipelines/my-pipeline.yml 'job:key=a b'
+$ dci-pipeline ~/dci/pipelines/my-pipeline.yml 'job:key=a b'
+```
+
+Secret redaction is **enabled by default**: the recorded command line is
+redacted before the file is uploaded. Set `DCI_REDACT=0` (or `false`/`no`)
+to disable it. The default patterns mask GitHub tokens, DCI
+`remoteci/<uuid>` and `DCI.*` credentials, and the `auth` field of pull
+secrets (JSON, YAML and escaped forms). To cover your own secret formats,
+set `DCI_REDACT_PATTERNS` to a colon-separated list of regular
+expressions, for example
+`DCI_REDACT_PATTERNS='my_password=\S+:my_token=\w+'`; each match is
+replaced by `***REDACTED***`. Note that this variable replaces the default
+pattern set, so include any default patterns you still need. Values not
+matched by a pattern are kept verbatim so the recorded line stays
+replayable.
+
 ### Sharing information between jobs
 
 The only way to share information between jobs is to use the
@@ -448,6 +481,12 @@ $ dci-pipeline-schedule ocp-vanilla workload \
     workload:ansible_extravars='{"user":"jdoe","password":"Pass123$"}'
 ...
 ```
+
+A JSON value must be passed quoted on the command line, as in the last
+line above. The shell removes the quotes before `dci-pipeline` sees the
+argument, and the file attached to the job (see
+[Reproducing a run](#reproducing-a-run)) quotes it again, so the
+recorded command line stays reproducible as is.
 
 ### Previous Topic
 
@@ -835,7 +874,7 @@ spokes already reserved for their own reason stay reserved. Force removing
 `hub1` fully removes all linked spokes, including independently reserved ones.
 Soft removing a spoke saves its parent so `add-resource spoke spoke1` restores
 the link. Force removing a spoke clears its parent link; specify `--parent`
-again when readding it.
+again when re-adding it.
 
 `dci-queue list` shows parent and dependent resources. Jobs using a linked
 resource receive `DCI_QUEUE_PARENT` and `DCI_QUEUE_PARENT_RES`. For each
@@ -935,7 +974,7 @@ $ dci-queue add-pool parent
 $ dci-queue add-resource parent p1
 
 # Child pool
-$ dci-queue add-pool child 
+$ dci-queue add-pool child
 $ dci-queue add-resource child c1 --parent parent/p1
 $ dci-queue add-resource child c2 --parent parent/p1
 ```
@@ -1019,6 +1058,12 @@ components:
 ```
 
 This rebuilt pipeline can be used as a regular one with the `dci-pipeline` command.
+
+Note that the supported way to reproduce a run is the `cmdline.txt`
+file attached to every job and described in
+[Reproducing a run](#reproducing-a-run). `dci-rebuild-pipeline`
+complements it by pinning the component versions to the ones used by
+the original run.
 
 If you do not specify `--job_id`, `dci-rebuild-pipeline` is using the last job that has run.
 

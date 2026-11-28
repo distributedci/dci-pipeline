@@ -13,12 +13,18 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import json
 import os
+import shlex
+import subprocess
+import sys
+import tempfile
 import unittest
 from unittest import mock
 
 from dcipipeline.main import (
     build_cmdline,
+    build_launch_cmdline,
     convert_value_type,
     dci,
     extract_build_tags,
@@ -35,6 +41,8 @@ from dcipipeline.main import (
     post_process_jobdef,
     pre_process_jobdef,
     process_args,
+    schedule_job,
+    upload_cmdline_file,
     upload_junit_files_from_dir,
 )
 
@@ -620,6 +628,360 @@ class TestConvertValueType(unittest.TestCase):
 
     def test_string_with_only_spaces(self):
         self.assertEqual(convert_value_type("   "), "   ")
+
+
+class TestBuildLaunchCmdline(unittest.TestCase):
+    def test_simple_command(self):
+        self.assertEqual(
+            build_launch_cmdline(["dci-pipeline", "my-pipeline.yml"]),
+            "dci-pipeline my-pipeline.yml",
+        )
+
+    def test_argument_with_spaces(self):
+        argv = ["dci-pipeline", "job:key=a b"]
+        self.assertEqual(build_launch_cmdline(argv), "dci-pipeline 'job:key=a b'")
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), argv)
+
+    def test_argument_with_commas(self):
+        argv = ["dci-pipeline", "job:components=ocp,ose-tests"]
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), argv)
+
+    def test_argument_with_dollar_sign(self):
+        argv = ["dci-pipeline", "job:password=Pass123$"]
+        self.assertEqual(
+            build_launch_cmdline(argv), "dci-pipeline 'job:password=Pass123$'"
+        )
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), argv)
+
+    def test_argument_with_double_quotes(self):
+        argv = ["dci-pipeline", 'job:key=va"lue']
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), argv)
+
+    def test_argument_with_single_quote(self):
+        argv = ["dci-pipeline", "job:key=va'lue"]
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), argv)
+
+    def test_argument_with_backslashes(self):
+        argv = ["dci-pipeline", "job:key=C:\\path\\to\\file"]
+        self.assertEqual(
+            build_launch_cmdline(argv), "dci-pipeline 'job:key=C:\\path\\to\\file'"
+        )
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), argv)
+
+    def test_empty_argument(self):
+        argv = ["dci-pipeline", ""]
+        self.assertEqual(build_launch_cmdline(argv), "dci-pipeline ''")
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), ["dci-pipeline", ""])
+
+    def test_inline_json(self):
+        argv = ["dci-pipeline", 'job:ansible_extravars={"a":1,"b":[1,2]}']
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), argv)
+
+    def test_nested_json_recorded_verbatim(self):
+        value = '{"b": 2, "a": {"c": [1, 2]}}'
+        argv = ["dci-pipeline", "job:ansible_extravars=" + value]
+        line = build_launch_cmdline(argv)
+        recorded = shlex.split(line)[1]
+        self.assertTrue(recorded.endswith(value))
+        self.assertEqual(
+            json.loads(recorded.split("=", 1)[1]), {"b": 2, "a": {"c": [1, 2]}}
+        )
+
+    def test_quotes_and_dollar_inside_json(self):
+        value = '{"user":"jdoe","password":"it\'s Pass123$"}'
+        argv = ["dci-pipeline", "job:ansible_extravars=" + value]
+        self.assertEqual(shlex.split(build_launch_cmdline(argv)), argv)
+        recorded = shlex.split(build_launch_cmdline(argv))[1]
+        self.assertEqual(
+            json.loads(recorded.split("=", 1)[1]),
+            {"user": "jdoe", "password": "it's Pass123$"},
+        )
+
+    def test_shell_roundtrip(self):
+        argv = [
+            "-pipeline.yml",
+            "job:key=a b",
+            'job:ansible_extravars={"user":"jdoe","password":"Pass123$"}',
+            "job:other=it's here",
+            "",
+            "job:path=C:\\tmp\\dir",
+        ]
+        prog = [
+            sys.executable,
+            "-c",
+            "import json,sys;print(json.dumps(sys.argv[1:]))",
+        ]
+        line = build_launch_cmdline(prog + argv)
+        output = subprocess.check_output(["sh", "-c", line], cwd=tempfile.gettempdir())
+        self.assertEqual(json.loads(output.decode()), argv)
+
+
+class TestUploadCmdlineFile(unittest.TestCase):
+    def setUp(self):
+        self.context = mock.MagicMock()
+
+    @staticmethod
+    def _file_list_response(files):
+        return mock.MagicMock(
+            status_code=200, json=mock.Mock(return_value={"files": files})
+        )
+
+    def test_upload_creates_one_cmdline_file(self):
+        captured = {}
+
+        def create(context, name, **kwargs):
+            with open(kwargs["file_path"]) as f:
+                captured["content"] = f.read()
+            captured["args"] = (context, name)
+            captured["kwargs"] = kwargs
+            return mock.MagicMock(status_code=201)
+
+        with mock.patch(
+            "dcipipeline.main.dci_job.list_files",
+            return_value=self._file_list_response([]),
+        ), mock.patch(
+            "dcipipeline.main.dci_file.create", side_effect=create
+        ) as m_create, mock.patch(
+            "dcipipeline.main.dci_redact.should_redact", return_value=False
+        ):
+            upload_cmdline_file(self.context, "job1", "dci-pipeline job:key=a b")
+
+        m_create.assert_called_once()
+        self.assertEqual(captured["args"], (self.context, "cmdline.txt"))
+        self.assertEqual(captured["kwargs"]["mime"], "text/plain")
+        self.assertEqual(captured["kwargs"]["job_id"], "job1")
+        self.assertEqual(captured["content"], "dci-pipeline job:key=a b\n")
+
+    def test_redaction_uploads_redacted_content(self):
+        captured = {}
+        created_dirs = []
+
+        real_mkdtemp = tempfile.mkdtemp
+
+        def fake_mkdtemp(prefix=None):
+            d = real_mkdtemp(prefix=prefix)
+            created_dirs.append(d)
+            return d
+
+        def redact_file(path, redacted_path):
+            with open(path) as f:
+                content = f.read()
+            with open(redacted_path, "w") as f:
+                f.write(content.replace("Pass123$", "***"))
+
+        def create(context, name, **kwargs):
+            with open(kwargs["file_path"]) as f:
+                captured["content"] = f.read()
+            return mock.MagicMock(status_code=201)
+
+        with mock.patch(
+            "dcipipeline.main.tempfile.mkdtemp", side_effect=fake_mkdtemp
+        ), mock.patch(
+            "dcipipeline.main.dci_job.list_files",
+            return_value=self._file_list_response([]),
+        ), mock.patch(
+            "dcipipeline.main.dci_file.create", side_effect=create
+        ) as m_create, mock.patch(
+            "dcipipeline.main.dci_redact.should_redact", return_value=True
+        ), mock.patch(
+            "dcipipeline.main.dci_redact.redact_file", side_effect=redact_file
+        ):
+            upload_cmdline_file(
+                self.context, "job1", "dci-pipeline job:password=Pass123$"
+            )
+
+        m_create.assert_called_once()
+        self.assertEqual(captured["content"], "dci-pipeline job:password=***\n")
+        self.assertNotIn("Pass123$", captured["content"])
+        self.assertEqual(
+            shlex.split(captured["content"]), ["dci-pipeline", "job:password=***"]
+        )
+        for d in created_dirs:
+            self.assertFalse(os.path.exists(d))
+
+    def test_idempotent_when_already_uploaded(self):
+        with mock.patch(
+            "dcipipeline.main.dci_job.list_files",
+            return_value=self._file_list_response([{"name": "cmdline.txt"}]),
+        ), mock.patch("dcipipeline.main.dci_file.create") as m_create, mock.patch(
+            "dcipipeline.main.dci_redact.should_redact", return_value=False
+        ):
+            upload_cmdline_file(self.context, "job1", "dci-pipeline a-pipeline.yml")
+        m_create.assert_not_called()
+
+    def test_list_failure_still_uploads(self):
+        with mock.patch(
+            "dcipipeline.main.dci_job.list_files", side_effect=Exception("boom")
+        ), mock.patch("dcipipeline.main.dci_file.create") as m_create, mock.patch(
+            "dcipipeline.main.dci_redact.should_redact", return_value=False
+        ):
+            upload_cmdline_file(self.context, "job1", "dci-pipeline a-pipeline.yml")
+        m_create.assert_called_once()
+
+    def test_create_failure_only_warns(self):
+        with mock.patch(
+            "dcipipeline.main.dci_job.list_files",
+            return_value=self._file_list_response([]),
+        ), mock.patch(
+            "dcipipeline.main.dci_file.create", side_effect=Exception("boom")
+        ), mock.patch(
+            "dcipipeline.main.dci_redact.should_redact", return_value=False
+        ), self.assertLogs(
+            "dcipipeline.main", level="WARNING"
+        ):
+            upload_cmdline_file(self.context, "job1", "dci-pipeline a-pipeline.yml")
+
+    def test_no_cmdline_does_nothing(self):
+        with mock.patch("dcipipeline.main.dci_job.list_files") as m_list, mock.patch(
+            "dcipipeline.main.dci_file.create"
+        ) as m_create:
+            upload_cmdline_file(self.context, "job1", "")
+        m_list.assert_not_called()
+        m_create.assert_not_called()
+
+    def test_none_cmdline_does_nothing(self):
+        with mock.patch("dcipipeline.main.dci_job.list_files") as m_list, mock.patch(
+            "dcipipeline.main.dci_file.create"
+        ) as m_create:
+            upload_cmdline_file(self.context, "job1", None)
+        m_list.assert_not_called()
+        m_create.assert_not_called()
+
+
+class TestScheduleJobAttachesCmdline(unittest.TestCase):
+    job_id = "job1"
+    component_id = "c1"
+    cmdline = "dci-pipeline my-pipeline.yml"
+
+    def setUp(self):
+        self.jobdef = {
+            "name": "job1",
+            "topic": "TOPIC",
+            "components": [{"name": "ocp", "id": self.component_id}],
+        }
+        self.components = [{"name": "ocp", "id": self.component_id, "version": "v1"}]
+
+    @staticmethod
+    def _response(status_code, payload):
+        return mock.MagicMock(
+            status_code=status_code, json=mock.Mock(return_value=payload)
+        )
+
+    def _schedule(self, scheduled_components=None, files=None, create_error=None):
+        """Run schedule_job() with all the DCI API calls mocked."""
+        if scheduled_components is None:
+            scheduled_components = [{"id": self.component_id, "name": "ocp"}]
+        if files is None:
+            files = []
+        parent = mock.MagicMock()
+        with mock.patch(
+            "dcipipeline.main.get_topic_id", return_value="topic-id"
+        ), mock.patch(
+            "dcipipeline.main.get_components",
+            return_value=(self.components, self.jobdef),
+        ), mock.patch(
+            "dcipipeline.main.get_data_dir"
+        ), mock.patch(
+            "dcipipeline.main.dci_job.create",
+            return_value=self._response(201, {"job": {"id": self.job_id}}),
+        ), mock.patch(
+            "dcipipeline.main.dci_job.get",
+            return_value=self._response(
+                200,
+                {
+                    "job": {
+                        "id": self.job_id,
+                        "components": scheduled_components,
+                    }
+                },
+            ),
+        ), mock.patch(
+            "dcipipeline.main.dci_jobstate.create"
+        ) as m_state, mock.patch(
+            "dcipipeline.main.dci_job.list_files",
+            return_value=self._response(200, {"files": files}),
+        ), mock.patch(
+            "dcipipeline.main.dci_file.create", side_effect=create_error
+        ) as m_create, mock.patch(
+            "dcipipeline.main.dci_redact.should_redact", return_value=False
+        ):
+            parent.attach_mock(m_state, "jobstate_create")
+            parent.attach_mock(m_create, "file_create")
+            job_info = schedule_job(
+                self.jobdef,
+                mock.MagicMock(),
+                None,
+                cmdline=self.cmdline,
+            )
+            return job_info, m_state, m_create, parent
+
+    def test_attach_happens_after_jobstate_creation(self):
+        job_info, m_state, m_create, parent = self._schedule()
+        self.assertEqual(job_info["job"]["id"], self.job_id)
+        m_create.assert_called_once()
+        args, kwargs = m_create.call_args
+        self.assertEqual(args[1], "cmdline.txt")
+        self.assertEqual(kwargs["mime"], "text/plain")
+        self.assertEqual(kwargs["job_id"], self.job_id)
+        names = [c[0] for c in parent.mock_calls]
+        self.assertIn("jobstate_create", names)
+        self.assertIn("file_create", names)
+        self.assertLess(names.index("jobstate_create"), names.index("file_create"))
+
+    def test_no_upload_when_file_already_present(self):
+        _, _, m_create, _ = self._schedule(files=[{"name": "cmdline.txt"}])
+        m_create.assert_not_called()
+
+    def test_component_mismatch_early_return_still_uploads(self):
+        job_info, _, m_create, _ = self._schedule(
+            scheduled_components=[{"id": "other", "name": "other"}]
+        )
+        self.assertIsNone(job_info)
+        m_create.assert_called_once()
+
+    def test_upload_failure_does_not_change_outcome(self):
+        with self.assertLogs("dcipipeline.main", level="WARNING"):
+            job_info, _, m_create, _ = self._schedule(create_error=Exception("boom"))
+        m_create.assert_called_once()
+        self.assertEqual(job_info["job"]["id"], self.job_id)
+
+    def test_no_cmdline_no_upload(self):
+        with mock.patch(
+            "dcipipeline.main.get_topic_id", return_value="topic-id"
+        ), mock.patch(
+            "dcipipeline.main.get_components",
+            return_value=(self.components, self.jobdef),
+        ), mock.patch(
+            "dcipipeline.main.get_data_dir"
+        ), mock.patch(
+            "dcipipeline.main.dci_job.create",
+            return_value=self._response(201, {"job": {"id": self.job_id}}),
+        ), mock.patch(
+            "dcipipeline.main.dci_job.get",
+            return_value=self._response(
+                200,
+                {
+                    "job": {
+                        "id": self.job_id,
+                        "components": [{"id": self.component_id, "name": "ocp"}],
+                    }
+                },
+            ),
+        ), mock.patch(
+            "dcipipeline.main.dci_jobstate.create"
+        ), mock.patch(
+            "dcipipeline.main.dci_job.list_files"
+        ) as m_list, mock.patch(
+            "dcipipeline.main.dci_file.create"
+        ) as m_create:
+            job_info = schedule_job(
+                self.jobdef,
+                mock.MagicMock(),
+                None,
+            )
+        self.assertIsNotNone(job_info)
+        m_list.assert_not_called()
+        m_create.assert_not_called()
 
 
 if __name__ == "__main__":
